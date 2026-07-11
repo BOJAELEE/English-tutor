@@ -106,24 +106,56 @@ function callLLM(user, maxTokens) {
   return LS.engine === "gemini" ? callGemini(user, maxTokens) : callClaude(user, maxTokens);
 }
 
+/* 키에서 사용 가능한 텍스트 생성용 flash 모델을 자동 탐색 (결과 캐시) */
+async function resolveGeminiModel() {
+  const cached = localStorage.getItem("geminiModel");
+  if (cached) return cached;
+  let model = "gemini-flash-latest";
+  try {
+    const res = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key="
+      + encodeURIComponent(LS.geminiKey));
+    if (res.ok) {
+      const data = await res.json();
+      const names = (data.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
+        .map(m => m.name.replace("models/", ""))
+        .filter(n => !/(image|tts|audio|live|embed|vision)/.test(n));
+      const prefs = [
+        /^gemini-flash-latest$/,
+        /^gemini-\d[\d.]*-flash$/,
+        /^gemini-[\d.]+-flash-\d+$/,
+        /flash-latest/,
+        /flash(?!-lite)/,
+        /flash/,
+      ];
+      for (const re of prefs) {
+        const hit = names.find(n => re.test(n));
+        if (hit) { model = hit; break; }
+      }
+    }
+  } catch {}
+  localStorage.setItem("geminiModel", model);
+  return model;
+}
+
 async function callGemini(user, maxTokens) {
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="
-    + encodeURIComponent(LS.geminiKey);
+  const model = await resolveGeminiModel();
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model
+    + ":generateContent?key=" + encodeURIComponent(LS.geminiKey);
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
-      generationConfig: {
-        maxOutputTokens: maxTokens || 400,
-        thinkingConfig: { thinkingBudget: 0 },
-      },
+      generationConfig: { maxOutputTokens: maxTokens || 400 },
     }),
   });
   if (!res.ok) {
+    if (res.status === 404) localStorage.removeItem("geminiModel"); // 다음 시도에 재탐색
     const t = await res.text();
-    throw new Error("Gemini API 오류 " + res.status + ": " + t.slice(0, 200));
+    throw new Error("Gemini API 오류 " + res.status + " (모델: " + model + "): " + t.slice(0, 200));
   }
   const data = await res.json();
   const parts = (data.candidates && data.candidates[0] && data.candidates[0].content
@@ -450,7 +482,9 @@ $("btn-settings-close").onclick = () => { ui.show("home"); refreshHome(); };
 $("btn-settings-save").onclick = () => {
   LS.engine = $("input-engine").value;
   LS.apiKey = $("input-apikey").value.trim();
-  LS.geminiKey = $("input-geminikey").value.trim();
+  const newGeminiKey = $("input-geminikey").value.trim();
+  if (newGeminiKey !== LS.geminiKey) localStorage.removeItem("geminiModel");
+  LS.geminiKey = newGeminiKey;
   const d = parseInt($("input-day").value, 10);
   if (d >= 1 && d <= 50 && d !== LS.progress.day) {
     LS.progress = { day: d, session: 0, index: 0 };
