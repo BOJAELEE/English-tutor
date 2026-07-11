@@ -8,6 +8,10 @@ const LS = {
   set geminiKey(v) { localStorage.setItem("geminiKey", v); },
   get engine() { return localStorage.getItem("engine") || "claude"; },
   set engine(v) { localStorage.setItem("engine", v); },
+  get koreanVoice() { return localStorage.getItem("koreanVoice") || ""; },
+  set koreanVoice(v) { localStorage.setItem("koreanVoice", v); },
+  get englishVoice() { return localStorage.getItem("englishVoice") || ""; },
+  set englishVoice(v) { localStorage.setItem("englishVoice", v); },
   get progress() {
     let v;
     try { v = JSON.parse(localStorage.getItem("progress")); } catch { v = null; }
@@ -41,7 +45,44 @@ if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschang
 
 function pickVoice(lang) {
   const exact = voices.filter(v => v.lang.replace("_", "-").startsWith(lang.slice(0, 2)));
-  return exact.find(v => v.localService) || exact[0] || null;
+  const overrideURI = lang.startsWith("ko") ? LS.koreanVoice : LS.englishVoice;
+  if (overrideURI) {
+    const chosen = exact.find(v => v.voiceURI === overrideURI);
+    if (chosen) return chosen;
+  }
+  return exact.find(v => !v.localService) || exact[0] || null;
+}
+
+function populateVoiceSelect(selectEl, lang, savedURI) {
+  const langPrefix = lang.slice(0, 2);
+  const opts = voices.filter(v => v.lang.replace("_", "-").startsWith(langPrefix));
+  selectEl.textContent = "";
+  const def = document.createElement("option");
+  def.value = ""; def.textContent = "자동 선택";
+  selectEl.appendChild(def);
+  opts.forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.voiceURI;
+    o.textContent = v.name + (v.localService ? " (기기 내장)" : " (네트워크)");
+    selectEl.appendChild(o);
+  });
+  selectEl.value = savedURI && opts.some(v => v.voiceURI === savedURI) ? savedURI : "";
+}
+
+function previewVoice(lang, voiceURI) {
+  const sample = lang.startsWith("ko") ? "안녕하세요, 이 목소리로 학습을 진행합니다." : "Hello, I'm about to leave the house.";
+  return new Promise(resolve => {
+    const u = new SpeechSynthesisUtterance(sample);
+    u.lang = lang;
+    if (voiceURI) {
+      const v = voices.find(x => x.voiceURI === voiceURI);
+      if (v) u.voice = v;
+    }
+    u.rate = lang.startsWith("en") ? 0.92 : 1.0;
+    u.onend = resolve;
+    u.onerror = resolve;
+    speechSynthesis.speak(u);
+  });
 }
 
 function speak(text, lang) {
@@ -533,6 +574,8 @@ function openSettings() {
   $("input-apikey").value = LS.apiKey;
   $("input-geminikey").value = LS.geminiKey;
   $("input-day").value = LS.progress.day;
+  populateVoiceSelect($("input-korean-voice"), "ko-KR", LS.koreanVoice);
+  populateVoiceSelect($("input-english-voice"), "en-US", LS.englishVoice);
   ui.show("settings");
 }
 $("btn-settings").onclick = openSettings;
@@ -543,6 +586,8 @@ $("btn-settings-save").onclick = () => {
   const newGeminiKey = $("input-geminikey").value.trim();
   if (newGeminiKey !== LS.geminiKey) localStorage.removeItem("geminiModel");
   LS.geminiKey = newGeminiKey;
+  LS.koreanVoice = $("input-korean-voice").value;
+  LS.englishVoice = $("input-english-voice").value;
   const d = parseInt($("input-day").value, 10);
   if (d >= 1 && d <= 50 && d !== LS.progress.day) {
     LS.progress = { day: d, pos: 0 };
@@ -550,6 +595,9 @@ $("btn-settings-save").onclick = () => {
   ui.show("home");
   refreshHome();
 };
+
+$("btn-preview-korean").onclick = () => previewVoice("ko-KR", $("input-korean-voice").value);
+$("btn-preview-english").onclick = () => previewVoice("en-US", $("input-english-voice").value);
 $("btn-reset").onclick = () => {
   if (confirm("학습 기록을 모두 초기화할까요? (Day 1부터 다시 시작)")) {
     localStorage.removeItem("progress");
