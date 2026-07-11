@@ -102,12 +102,27 @@ const SYSTEM_PROMPT =
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
-function callLLM(user, maxTokens) {
-  return LS.engine === "gemini" ? callGemini(user, maxTokens) : callClaude(user, maxTokens);
+/* 일시 오류(과부하/한도)는 자동 재시도 */
+async function callLLM(user, maxTokens) {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await (LS.engine === "gemini" ? callGemini(user, maxTokens) : callClaude(user, maxTokens));
+    } catch (e) {
+      lastErr = e;
+      if (e.status === 429 || e.status >= 500) {
+        await new Promise(r => setTimeout(r, 2000 * (i + 1)));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 /* 키에서 사용 가능한 텍스트 생성용 flash 모델을 자동 탐색 (결과 캐시) */
 const geminiFailed = new Set();
+const geminiBusy = {};
 
 async function resolveGeminiModel() {
   const cached = localStorage.getItem("geminiModel");
@@ -160,9 +175,19 @@ async function callGemini(user, maxTokens) {
       geminiFailed.add(model);
       localStorage.removeItem("geminiModel");
     }
+    if (res.status === 503 || res.status === 429) { // 과부하/한도: 2회 연속이면 다른 모델로 전환
+      geminiBusy[model] = (geminiBusy[model] || 0) + 1;
+      if (geminiBusy[model] >= 2) {
+        geminiFailed.add(model);
+        localStorage.removeItem("geminiModel");
+      }
+    }
     const t = await res.text();
-    throw new Error("Gemini API 오류 " + res.status + " (모델: " + model + "): " + t.slice(0, 200));
+    const err = new Error("Gemini API 오류 " + res.status + " (모델: " + model + "): " + t.slice(0, 200));
+    err.status = res.status;
+    throw err;
   }
+  geminiBusy[model] = 0;
   const data = await res.json();
   const parts = (data.candidates && data.candidates[0] && data.candidates[0].content
     && data.candidates[0].content.parts) || [];
@@ -187,7 +212,9 @@ async function callClaude(user, maxTokens) {
   });
   if (!res.ok) {
     const t = await res.text();
-    throw new Error("API 오류 " + res.status + ": " + t.slice(0, 200));
+    const err = new Error("Claude API 오류 " + res.status + ": " + t.slice(0, 200));
+    err.status = res.status;
+    throw err;
   }
   const data = await res.json();
   return data.content.filter(b => b.type === "text").map(b => b.text).join("");
