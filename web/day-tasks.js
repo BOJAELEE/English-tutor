@@ -1,0 +1,48 @@
+"use strict";
+
+/* ==================== 하루 커리큘럼 로직 (DOM 비의존, 테스트 가능) ==================== */
+
+function dayPatterns(day) { return PATTERNS.slice((day - 1) * 4, day * 4); }
+
+/* 세션4 랜덤 복습 선택을 날짜별로 고정 (뒤로/앞으로 이동해도 같은 문제 유지) */
+function getReviewPicks(day, pool) {
+  const key = "reviewPicks_" + day;
+  let cachedNums = null;
+  try { cachedNums = JSON.parse(localStorage.getItem(key)); } catch {}
+  if (Array.isArray(cachedNums)) {
+    const found = cachedNums.map(n => pool.find(p => p.num === n)).filter(Boolean);
+    if (found.length === cachedNums.length && found.length > 0) return found;
+  }
+  const picks = [];
+  const used = new Set();
+  while (picks.length < Math.min(2, pool.length)) {
+    const i = Math.floor(Math.random() * pool.length);
+    if (!used.has(i)) { used.add(i); picks.push(pool[i]); }
+  }
+  localStorage.setItem(key, JSON.stringify(picks.map(p => p.num)));
+  return picks;
+}
+
+function buildSessions(day) {
+  const today = dayPatterns(day);
+  const s1 = [];
+  today.forEach(p => p.examples.forEach((ex, i) => s1.push({ kind: "pattern", p, ex, exIdx: i })));
+  const s2 = today.map(p => ({ kind: "situation", p }));
+  const sessions = [
+    { name: "세션1 패턴 연습", tasks: s1 },
+    { name: "세션2 상황 연습", tasks: s2 },
+  ];
+  if (day > 1) {
+    const prev = dayPatterns(day - 1);
+    sessions.push({ name: "세션3 어제 복습", tasks: prev.map(p => ({ kind: "situation", p })) });
+    const pool = PATTERNS.slice(0, (day - 1) * 4);
+    const picks = getReviewPicks(day, pool);
+    sessions.push({ name: "세션4 전체 복습", tasks: picks.map(p => ({ kind: "situation", p })) });
+  }
+  return sessions;
+}
+
+/* 오늘 할 일을 세션 이름표를 붙여 평평한 배열로 반환 */
+function buildDayTasks(day) {
+  return buildSessions(day).flatMap(s => s.tasks.map(t => ({ ...t, sessionName: s.name })));
+}

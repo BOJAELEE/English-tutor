@@ -23,33 +23,6 @@ const LS = {
   },
 };
 
-/* ==================== 세션 구성 ==================== */
-function dayPatterns(day) { return PATTERNS.slice((day - 1) * 4, day * 4); }
-
-function buildSessions(day) {
-  const today = dayPatterns(day);
-  const s1 = [];
-  today.forEach(p => p.examples.forEach((ex, i) => s1.push({ kind: "pattern", p, ex, exIdx: i })));
-  const s2 = today.map(p => ({ kind: "situation", p }));
-  const sessions = [
-    { name: "세션1 패턴 연습", tasks: s1 },
-    { name: "세션2 상황 연습", tasks: s2 },
-  ];
-  if (day > 1) {
-    const prev = dayPatterns(day - 1);
-    sessions.push({ name: "세션3 어제 복습", tasks: prev.map(p => ({ kind: "situation", p })) });
-    const pool = PATTERNS.slice(0, (day - 1) * 4);
-    const picks = [];
-    const used = new Set();
-    while (picks.length < Math.min(2, pool.length)) {
-      const i = Math.floor(Math.random() * pool.length);
-      if (!used.has(i)) { used.add(i); picks.push(pool[i]); }
-    }
-    sessions.push({ name: "세션4 전체 복습", tasks: picks.map(p => ({ kind: "situation", p })) });
-  }
-  return sessions;
-}
-
 /* ==================== 음성: TTS ==================== */
 let voices = [];
 function loadVoices() { voices = speechSynthesis.getVoices(); }
