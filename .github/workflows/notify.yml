@@ -5,6 +5,9 @@ on:
     - cron: "10 22 * * 0-4"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   notify:
     runs-on: ubuntu-latest
