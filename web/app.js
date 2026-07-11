@@ -334,7 +334,7 @@ async function step(fn) {
 /* 듣기: 실패 시 재요청, 3회 실패하면 null 반환 */
 async function listenWithRetry() {
   for (let i = 0; i < 3; i++) {
-    if (state.skip || state.quit) return null;
+    if (state.skip || state.back || state.quit) return null;
     const r = await step(() => listen("en-US", 12000));
     if (r.text) return r.text;
     if (r.error === "unsupported") {
@@ -367,10 +367,10 @@ async function runPatternTask(task) {
   ui.main(promptKo);
   ui.sub("");
   await step(() => speak(promptKo, "ko-KR"));
-  if (state.skip) return;
+  if (state.skip || state.back) return;
 
   const heard = await listenWithRetry();
-  if (state.skip) return;
+  if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
   if (heard === null) {
@@ -385,7 +385,7 @@ async function runPatternTask(task) {
   }
   ui.main(feedbackKo);
   await step(() => speak(feedbackKo, "ko-KR"));
-  if (state.skip) return;
+  if (state.skip || state.back) return;
   await shadow(modelEn);
 }
 
@@ -397,10 +397,10 @@ async function runSituationTask(task) {
   ui.main(q.question_en);
   ui.sub(q.question_ko + "\n(오늘 배운 패턴으로 대답해보세요)");
   await step(() => speak(q.question_en, "en-US"));
-  if (state.skip) return;
+  if (state.skip || state.back) return;
 
   const heard = await listenWithRetry();
-  if (state.skip) return;
+  if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
   if (heard === null) {
@@ -415,58 +415,63 @@ async function runSituationTask(task) {
   }
   ui.main(feedbackKo);
   await step(() => speak(feedbackKo, "ko-KR"));
-  if (state.skip) return;
+  if (state.skip || state.back) return;
   await shadow(modelEn);
 }
 
+function savePos(day, pos) { LS.progress = { day, pos }; }
+
 async function runDay() {
   const prog = LS.progress;
-  const day = prog.day;
-  const sessions = buildSessions(day);
-  const totalTasks = sessions.reduce((n, s) => n + s.tasks.length, 0);
+  let day = prog.day;
+  let pos = prog.pos;
 
-  let doneCount = 0;
-  for (let si = 0; si < sessions.length; si++) {
-    if (si < prog.session) { doneCount += sessions[si].tasks.length; continue; }
-    const session = sessions[si];
-    const startIdx = si === prog.session ? prog.index : 0;
-    doneCount += startIdx;
+  while (true) {
+    const tasks = buildDayTasks(day);
 
-    if (startIdx === 0) {
-      ui.header(day, session.name, doneCount, totalTasks);
-      ui.main(session.name + " 시작!");
+    if (pos >= tasks.length) {
+      const finishedDay = day;
+      day = Math.min(day + 1, 50);
+      pos = 0;
+      savePos(day, pos);
+      ui.main("Day " + finishedDay + " 완료! 수고하셨어요!");
       ui.sub("");
-      await step(() => speak(session.name.replace("세션", "세션 ") + "을 시작합니다.", "ko-KR"));
+      await speak("오늘 학습을 모두 완료했어요. 수고하셨습니다!", "ko-KR");
+      return;
     }
 
-    for (let ti = startIdx; ti < session.tasks.length; ti++) {
-      state.skip = false;
-      ui.header(day, session.name, doneCount, totalTasks);
-      const task = session.tasks[ti];
-      try {
-        if (task.kind === "pattern") await runPatternTask(task);
-        else await runSituationTask(task);
-      } catch (e) {
-        if (e && e.quit) throw e;
-        // API 오류 등: 음성 안내 후 잠시 대기, 같은 문제 재시도
-        console.error(e);
-        ui.main("오류가 발생했어요");
-        ui.sub(String(e.message || e));
-        await speak("오류가 발생했어요. 잠시 후 다시 시도합니다.", "ko-KR");
-        await new Promise(r => setTimeout(r, 3000));
-        ti--; continue;
-      }
-      doneCount++;
-      LS.progress = { day, session: si, index: ti + 1 };
+    state.skip = false;
+    state.back = false;
+    const task = tasks[pos];
+    ui.header(day, task.sessionName, pos + 1, tasks.length);
+    $("btn-back").disabled = (day === 1 && pos === 0);
+
+    if (pos === 0 || tasks[pos - 1].sessionName !== task.sessionName) {
+      await step(() => speak(task.sessionName.replace("세션", "세션 ") + "을 시작합니다.", "ko-KR"));
     }
-    LS.progress = { day, session: si + 1, index: 0 };
+
+    try {
+      if (task.kind === "pattern") await runPatternTask(task);
+      else await runSituationTask(task);
+    } catch (e) {
+      if (e && e.quit) throw e;
+      // API 오류 등: 음성 안내 후 잠시 대기, 같은 문제 재시도 (위치 이동 없음)
+      console.error(e);
+      ui.main("오류가 발생했어요");
+      ui.sub(String(e.message || e));
+      await speak("오류가 발생했어요. 잠시 후 다시 시도합니다.", "ko-KR");
+      await new Promise(r => setTimeout(r, 3000));
+      continue;
+    }
+
+    const prevDay = day, prevPos = pos;
+    const next = advancePos(day, pos, state.back ? "back" : "forward");
+    day = next.day; pos = next.pos;
+    if (state.back && day === prevDay && pos === prevPos) {
+      await step(() => speak("지금이 처음이에요.", "ko-KR"));
+    }
+    savePos(day, pos);
   }
-
-  // 하루 완료
-  LS.progress = { day: Math.min(day + 1, 50), session: 0, index: 0 };
-  ui.main("Day " + day + " 완료! 수고하셨어요!");
-  ui.sub("");
-  await speak("오늘 학습을 모두 완료했어요. 수고하셨습니다!", "ko-KR");
 }
 
 /* ==================== 화면 꺼짐 방지 ==================== */
