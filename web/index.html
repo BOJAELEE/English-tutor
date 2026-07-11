@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a1d2e">
+<title>English Tutor - 패턴 200 훈련</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 홈 화면 -->
+<div id="screen-home" class="screen">
+  <header class="home-header">
+    <h1>English Tutor</h1>
+    <button id="btn-settings" class="icon-btn" title="설정">&#9881;</button>
+  </header>
+  <div class="day-card">
+    <div class="day-label">오늘의 학습</div>
+    <div class="day-num" id="home-day">Day 1</div>
+    <div id="home-plan" class="day-plan"></div>
+  </div>
+  <button id="btn-start" class="big-btn">학습 시작</button>
+  <div id="home-warning" class="warning"></div>
+</div>
+
+<!-- 학습 화면 -->
+<div id="screen-practice" class="screen hidden">
+  <header class="practice-header">
+    <span id="ph-day"></span>
+    <span id="ph-session"></span>
+    <span id="ph-progress"></span>
+  </header>
+  <div class="status-card">
+    <div id="mic-indicator" class="mic hidden"><span class="pulse"></span>듣고 있어요...</div>
+    <div id="status-main"></div>
+    <div id="status-sub"></div>
+  </div>
+  <div class="controls">
+    <button id="btn-pause" class="ctl-btn">일시정지</button>
+    <button id="btn-skip" class="ctl-btn">건너뛰기</button>
+    <button id="btn-quit" class="ctl-btn danger">종료</button>
+  </div>
+</div>
+
+<!-- 설정 화면 -->
+<div id="screen-settings" class="screen hidden">
+  <header class="home-header">
+    <h1>설정</h1>
+    <button id="btn-settings-close" class="icon-btn">&#10005;</button>
+  </header>
+  <label class="field">
+    <span>Claude API 키</span>
+    <input type="password" id="input-apikey" placeholder="sk-ant-...">
+  </label>
+  <label class="field">
+    <span>현재 Day (1~50)</span>
+    <input type="number" id="input-day" min="1" max="50">
+  </label>
+  <button id="btn-settings-save" class="big-btn">저장</button>
+  <button id="btn-reset" class="ctl-btn danger" style="margin-top:24px">학습 기록 전체 초기화</button>
+</div>
+
+<script src="patterns.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
