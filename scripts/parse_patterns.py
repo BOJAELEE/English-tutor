@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-raw = (ROOT / "data" / "patterns_raw.txt").read_text(encoding="utf-8")
+raw = (ROOT / "data" / "patterns_raw.txt").read_text(encoding="utf-8-sig")
 
 # Unit 헤더 제거
 raw = re.sub(r"Unit \d+:.*?(?=Pattern \d)", "", raw)

@@ -59,26 +59,40 @@ try {
     }
 
     git push
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output ""
+        Write-Output "=== 배포 실패: 업로드(push) 오류 ==="
+        Write-Output "GitHub에 업로드하지 못했습니다. 인터넷 연결과 git 로그인 상태를 확인한 뒤 다시 실행해주세요."
+        Read-Host "아무 키나 누르면 창이 닫힙니다"
+        exit 1
+    }
 
     Write-Output ""
     Write-Output "=== 배포 대기 중 (최대 4분) ==="
-    $deadline = (Get-Date).AddMinutes(4)
-    $run = $null
-    do {
-        Start-Sleep -Seconds 15
-        $r = Invoke-RestMethod -Uri "https://api.github.com/repos/BOJAELEE/English-tutor/actions/runs?per_page=1" -UseBasicParsing
-        $run = $r.workflow_runs[0]
-        Write-Output ("  상태: " + $run.status)
-    } while ($run.status -ne "completed" -and (Get-Date) -lt $deadline)
+    try {
+        $deadline = (Get-Date).AddMinutes(4)
+        $run = $null
+        do {
+            Start-Sleep -Seconds 15
+            $r = Invoke-RestMethod -Uri "https://api.github.com/repos/BOJAELEE/English-tutor/actions/runs?per_page=1" -UseBasicParsing
+            $run = $r.workflow_runs[0]
+            Write-Output ("  상태: " + $run.status)
+        } while ($run.status -ne "completed" -and (Get-Date) -lt $deadline)
 
-    if ($run -and $run.conclusion -eq "success") {
+        if ($run -and $run.conclusion -eq "success") {
+            Write-Output ""
+            Write-Output "=== 완료되었습니다! ==="
+            Write-Output "폰에서 앱을 완전히 닫았다가 다시 열어 새로고침해주세요."
+        } else {
+            Write-Output ""
+            Write-Output "=== 배포 상태를 확인해주세요 ==="
+            Write-Output "https://github.com/BOJAELEE/English-tutor/actions"
+        }
+    } catch {
         Write-Output ""
-        Write-Output "=== 완료되었습니다! ==="
-        Write-Output "폰에서 앱을 완전히 닫았다가 다시 열어 새로고침해주세요."
-    } else {
-        Write-Output ""
-        Write-Output "=== 배포 상태를 확인해주세요 ==="
-        Write-Output "https://github.com/BOJAELEE/English-tutor/actions"
+        Write-Output "=== 배포 상태 확인 실패 ==="
+        Write-Output "업로드(push)는 성공했지만, 배포 상태 확인 중 네트워크 오류가 발생했습니다."
+        Write-Output "아래 주소에서 배포 상태를 직접 확인해주세요: https://github.com/BOJAELEE/English-tutor/actions"
     }
 } finally {
     Pop-Location
