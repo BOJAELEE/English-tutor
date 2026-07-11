@@ -1,0 +1,9 @@
+{
+  "name": "englishtutor-notify",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Actions 예약 작업에서만 실행되는 푸시 알림 발송 스크립트 (사용자 로컬 개발과 무관)",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}
