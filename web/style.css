@@ -99,7 +99,7 @@ h1 { font-size: 24px; }
 .ctl-btn.danger { background: #6b3040; }
 
 .field { display: flex; flex-direction: column; gap: 8px; font-size: 15px; color: #c3cae0; }
-.field input {
+.field input, .field select {
   background: #252a40; border: 1px solid #3a415e; border-radius: 10px;
   color: #eef0f6; font-size: 17px; padding: 14px;
 }

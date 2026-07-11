@@ -51,8 +51,19 @@
     <button id="btn-settings-close" class="icon-btn">&#10005;</button>
   </header>
   <label class="field">
+    <span>AI 엔진</span>
+    <select id="input-engine">
+      <option value="claude">Claude (유료 · 소액 과금)</option>
+      <option value="gemini">Gemini (무료)</option>
+    </select>
+  </label>
+  <label class="field">
     <span>Claude API 키</span>
     <input type="password" id="input-apikey" placeholder="sk-ant-...">
+  </label>
+  <label class="field">
+    <span>Gemini API 키</span>
+    <input type="password" id="input-geminikey" placeholder="AIza...">
   </label>
   <label class="field">
     <span>현재 Day (1~50)</span>

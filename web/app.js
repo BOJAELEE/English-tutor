@@ -4,6 +4,10 @@
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
+  get geminiKey() { return localStorage.getItem("geminiKey") || ""; },
+  set geminiKey(v) { localStorage.setItem("geminiKey", v); },
+  get engine() { return localStorage.getItem("engine") || "claude"; },
+  set engine(v) { localStorage.setItem("engine", v); },
   get progress() {
     try { return JSON.parse(localStorage.getItem("progress")) || { day: 1, session: 0, index: 0 }; }
     catch { return { day: 1, session: 0, index: 0 }; }
@@ -92,9 +96,40 @@ function listen(lang, timeoutMs) {
   });
 }
 
-/* ==================== Claude API ==================== */
+/* ==================== AI API (Claude / Gemini) ==================== */
 const SYSTEM_PROMPT =
   "당신은 한국인을 위한 영어회화 튜터입니다. 반드시 요청된 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.";
+
+function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
+
+function callLLM(user, maxTokens) {
+  return LS.engine === "gemini" ? callGemini(user, maxTokens) : callClaude(user, maxTokens);
+}
+
+async function callGemini(user, maxTokens) {
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key="
+    + encodeURIComponent(LS.geminiKey);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig: {
+        maxOutputTokens: maxTokens || 400,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error("Gemini API 오류 " + res.status + ": " + t.slice(0, 200));
+  }
+  const data = await res.json();
+  const parts = (data.candidates && data.candidates[0] && data.candidates[0].content
+    && data.candidates[0].content.parts) || [];
+  return parts.map(p => p.text || "").join("");
+}
 
 async function callClaude(user, maxTokens) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -131,7 +166,7 @@ async function getKoreanPrompt(p, exIdx) {
   const cached = LS.cache[key];
   if (cached) return cached;
   const ex = p.examples[exIdx];
-  const raw = await callClaude(
+  const raw = await callLLM(
     `영어 문장: "${ex}" (패턴: ${p.title})\n` +
     `학습자가 이 영어 문장을 말하도록 유도하는 한국어 안내문을 만드세요. ` +
     `형식: 상황을 한 문장으로 묘사한 뒤, 해야 할 말을 한국어로 알려주세요. ` +
@@ -149,7 +184,7 @@ async function getQuestion(p) {
   const key = "q" + p.num;
   const cached = LS.cache[key];
   if (cached) return cached;
-  const raw = await callClaude(
+  const raw = await callLLM(
     `패턴: "${p.title}"\n예문: ${p.examples.join(" / ")}\n` +
     `학습자가 이 패턴을 사용해 대답하게 되는 자연스러운 영어 질문(또는 말)을 한 문장 만드세요.\n` +
     `JSON: {"question_en": "...", "question_ko": "질문의 한국어 해석"}`
@@ -161,7 +196,7 @@ async function getQuestion(p) {
 
 /* 교정 */
 async function checkPattern(targetEn, heard) {
-  const raw = await callClaude(
+  const raw = await callLLM(
     `목표 영어 문장: "${targetEn}"\n학습자 발화(음성인식 결과): "${heard}"\n` +
     `학습자가 목표 문장을 올바르게 말했는지 판정하세요. 음성인식 특성상 대소문자/구두점/축약형 차이는 정답으로 인정하세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "가장 자연스러운 영어 문장"}`
@@ -170,7 +205,7 @@ async function checkPattern(targetEn, heard) {
 }
 
 async function checkAnswer(p, question, heard) {
-  const raw = await callClaude(
+  const raw = await callLLM(
     `패턴: "${p.title}"\n질문: "${question}"\n학습자 답변(음성인식 결과): "${heard}"\n` +
     `학습자가 이 패턴을 사용해 자연스럽게 대답했는지 판정하세요. 의미가 통하면 관대하게 평가하세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "이 패턴을 사용한 자연스러운 모범 답변 한 문장"}`
@@ -369,13 +404,14 @@ function refreshHome() {
   const lines = pats.map(p => "패턴 " + p.num + ". " + p.title);
   if (prog.day > 1) lines.push("+ 어제 복습 4개, 전체 복습 2개");
   $("home-plan").innerHTML = lines.join("<br>");
-  $("home-warning").textContent = LS.apiKey ? "" : "설정에서 Claude API 키를 먼저 입력해주세요.";
+  const engineName = LS.engine === "gemini" ? "Gemini" : "Claude";
+  $("home-warning").textContent = currentKey() ? "" : "설정에서 " + engineName + " API 키를 먼저 입력해주세요.";
   const resumed = prog.session > 0 || prog.index > 0;
   $("btn-start").textContent = resumed ? "이어서 학습" : "학습 시작";
 }
 
 $("btn-start").onclick = async () => {
-  if (!LS.apiKey) { ui.show("settings"); return; }
+  if (!currentKey()) { openSettings(); return; }
   state.running = true; state.paused = false; state.quit = false;
   ui.show("practice");
   $("btn-pause").textContent = "일시정지";
@@ -402,14 +438,19 @@ $("btn-quit").onclick = () => {
   speechSynthesis.cancel();
 };
 
-$("btn-settings").onclick = () => {
+function openSettings() {
+  $("input-engine").value = LS.engine;
   $("input-apikey").value = LS.apiKey;
+  $("input-geminikey").value = LS.geminiKey;
   $("input-day").value = LS.progress.day;
   ui.show("settings");
-};
+}
+$("btn-settings").onclick = openSettings;
 $("btn-settings-close").onclick = () => { ui.show("home"); refreshHome(); };
 $("btn-settings-save").onclick = () => {
+  LS.engine = $("input-engine").value;
   LS.apiKey = $("input-apikey").value.trim();
+  LS.geminiKey = $("input-geminikey").value.trim();
   const d = parseInt($("input-day").value, 10);
   if (d >= 1 && d <= 50 && d !== LS.progress.day) {
     LS.progress = { day: d, session: 0, index: 0 };
