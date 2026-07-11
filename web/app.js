@@ -107,9 +107,11 @@ function callLLM(user, maxTokens) {
 }
 
 /* 키에서 사용 가능한 텍스트 생성용 flash 모델을 자동 탐색 (결과 캐시) */
+const geminiFailed = new Set();
+
 async function resolveGeminiModel() {
   const cached = localStorage.getItem("geminiModel");
-  if (cached) return cached;
+  if (cached && !geminiFailed.has(cached)) return cached;
   let model = "gemini-flash-latest";
   try {
     const res = await fetch(
@@ -120,7 +122,8 @@ async function resolveGeminiModel() {
       const names = (data.models || [])
         .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
         .map(m => m.name.replace("models/", ""))
-        .filter(n => !/(image|tts|audio|live|embed|vision)/.test(n));
+        .filter(n => !/(image|tts|audio|live|embed|vision)/.test(n))
+        .filter(n => !geminiFailed.has(n));
       const prefs = [
         /^gemini-flash-latest$/,
         /^gemini-\d[\d.]*-flash$/,
@@ -153,7 +156,10 @@ async function callGemini(user, maxTokens) {
     }),
   });
   if (!res.ok) {
-    if (res.status === 404) localStorage.removeItem("geminiModel"); // 다음 시도에 재탐색
+    if (res.status === 404) { // 이 모델 제외하고 다음 시도에 재탐색
+      geminiFailed.add(model);
+      localStorage.removeItem("geminiModel");
+    }
     const t = await res.text();
     throw new Error("Gemini API 오류 " + res.status + " (모델: " + model + "): " + t.slice(0, 200));
   }
