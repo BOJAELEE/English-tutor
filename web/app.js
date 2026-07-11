@@ -574,6 +574,8 @@ function openSettings() {
   $("input-apikey").value = LS.apiKey;
   $("input-geminikey").value = LS.geminiKey;
   $("input-day").value = LS.progress.day;
+  $("input-day").max = TOTAL_DAYS;
+  $("day-range-label").textContent = "현재 Day (1~" + TOTAL_DAYS + ")";
   populateVoiceSelect($("input-korean-voice"), "ko-KR", LS.koreanVoice);
   populateVoiceSelect($("input-english-voice"), "en-US", LS.englishVoice);
   ui.show("settings");
