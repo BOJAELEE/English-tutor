@@ -494,7 +494,7 @@ function refreshHome() {
   $("home-plan").innerHTML = lines.join("<br>");
   const engineName = LS.engine === "gemini" ? "Gemini" : "Claude";
   $("home-warning").textContent = currentKey() ? "" : "설정에서 " + engineName + " API 키를 먼저 입력해주세요.";
-  const resumed = prog.session > 0 || prog.index > 0;
+  const resumed = prog.pos > 0;
   $("btn-start").textContent = resumed ? "이어서 학습" : "학습 시작";
 }
 
@@ -521,6 +521,8 @@ $("btn-pause").onclick = () => {
 
 $("btn-skip").onclick = () => { state.skip = true; speechSynthesis.cancel(); };
 
+$("btn-back").onclick = () => { state.back = true; speechSynthesis.cancel(); };
+
 $("btn-quit").onclick = () => {
   state.quit = true; state.paused = false;
   speechSynthesis.cancel();
@@ -543,7 +545,7 @@ $("btn-settings-save").onclick = () => {
   LS.geminiKey = newGeminiKey;
   const d = parseInt($("input-day").value, 10);
   if (d >= 1 && d <= 50 && d !== LS.progress.day) {
-    LS.progress = { day: d, session: 0, index: 0 };
+    LS.progress = { day: d, pos: 0 };
   }
   ui.show("home");
   refreshHome();

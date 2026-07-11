@@ -85,9 +85,8 @@ h1 { font-size: 24px; }
   100% { opacity: 1; transform: scale(1); }
 }
 
-.controls { display: flex; gap: 10px; }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .ctl-btn {
-  flex: 1;
   background: #353b58;
   color: #eef0f6;
   border: none;
@@ -97,6 +96,7 @@ h1 { font-size: 24px; }
   cursor: pointer;
 }
 .ctl-btn.danger { background: #6b3040; }
+.ctl-btn:disabled { opacity: 0.4; cursor: default; }
 
 .field { display: flex; flex-direction: column; gap: 8px; font-size: 15px; color: #c3cae0; }
 .field input, .field select {
