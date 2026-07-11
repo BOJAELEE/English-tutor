@@ -167,7 +167,10 @@ async function callGemini(user, maxTokens) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
-      generationConfig: { maxOutputTokens: maxTokens || 400 },
+      generationConfig: {
+        maxOutputTokens: (maxTokens || 400) + 2000, // thinking 토큰 여유분
+        responseMimeType: "application/json",
+      },
     }),
   });
   if (!res.ok) {
@@ -189,9 +192,15 @@ async function callGemini(user, maxTokens) {
   }
   geminiBusy[model] = 0;
   const data = await res.json();
-  const parts = (data.candidates && data.candidates[0] && data.candidates[0].content
-    && data.candidates[0].content.parts) || [];
-  return parts.map(p => p.text || "").join("");
+  const cand = (data.candidates && data.candidates[0]) || {};
+  const parts = (cand.content && cand.content.parts) || [];
+  const text = parts.map(p => p.text || "").join("");
+  if (!text) {
+    const err = new Error("Gemini 빈 응답 (finishReason: " + (cand.finishReason || "?") + ")");
+    err.status = 503; // 재시도 대상으로 처리
+    throw err;
+  }
+  return text;
 }
 
 async function callClaude(user, maxTokens) {
@@ -205,7 +214,7 @@ async function callClaude(user, maxTokens) {
     },
     body: JSON.stringify({
       model: "claude-haiku-4-5",
-      max_tokens: maxTokens || 400,
+      max_tokens: maxTokens || 512,
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: user }],
     }),
@@ -221,8 +230,34 @@ async function callClaude(user, maxTokens) {
 }
 
 function parseJson(text) {
-  const m = text.match(/\{[\s\S]*\}/);
-  return JSON.parse(m ? m[0] : text);
+  // 코드펜스 제거
+  let s = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const start = s.indexOf("{");
+  if (start > 0) s = s.slice(start);
+  try {
+    return JSON.parse(s);
+  } catch {
+    // 잘린 JSON 복구: 열린 문자열/중괄호 닫기
+    return JSON.parse(repairJson(s));
+  }
+}
+
+function repairJson(s) {
+  let inStr = false, esc = false, depth = 0;
+  let out = "";
+  for (const ch of s) {
+    out += ch;
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (!inStr) {
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+    }
+  }
+  if (inStr) out += '"';       // 열린 문자열 닫기
+  while (depth-- > 0) out += "}"; // 열린 중괄호 닫기
+  return out;
 }
 
 /* 세션1: 한국어 상황 제시문 (캐시됨) */
