@@ -43,13 +43,14 @@ patterns.sort(key=lambda p: p["num"])
 
 # 검증
 nums = [p["num"] for p in patterns]
+n = len(patterns)
 ok = True
-if len(patterns) != 200:
-    print(f"FAIL: 패턴 수 {len(patterns)} != 200"); ok = False
-if nums != list(range(1, 201)):
-    missing = sorted(set(range(1, 201)) - set(nums))
-    dupes = sorted({n for n in nums if nums.count(n) > 1})
-    print(f"FAIL: 누락={missing} 중복={dupes}"); ok = False
+if n == 0 or n % 4 != 0:
+    print(f"FAIL: 패턴 수 {n}개는 4의 배수가 아닙니다 (하루 4패턴 단위로만 추가할 수 있습니다)"); ok = False
+if nums != list(range(1, n + 1)):
+    missing = sorted(set(range(1, n + 1)) - set(nums))
+    dupes = sorted({x for x in nums if nums.count(x) > 1})
+    print(f"FAIL: 1번부터 {n}번까지 빠짐없이 연속이어야 합니다. 누락={missing} 중복={dupes}"); ok = False
 for p in patterns:
     if len(p["examples"]) != 3:
         print(f"FAIL: #{p['num']} 예문 {len(p['examples'])}개"); ok = False
@@ -65,7 +66,7 @@ out = ROOT / "web" / "patterns.js"
 out.parent.mkdir(exist_ok=True)
 js = "const PATTERNS = " + json.dumps(patterns, ensure_ascii=False, indent=1) + ";\n"
 out.write_text(js, encoding="utf-8")
-print(f"OK: 200 patterns, 50 days -> {out}")
+total_days = n // 4
+print(f"OK: {n} patterns, {total_days} days -> {out}")
 print("샘플 #1:", json.dumps(patterns[0], ensure_ascii=False))
-print("샘플 #120:", json.dumps(patterns[119], ensure_ascii=False))
-print("샘플 #200:", json.dumps(patterns[199], ensure_ascii=False))
+print(f"샘플 #{n}:", json.dumps(patterns[-1], ensure_ascii=False))
