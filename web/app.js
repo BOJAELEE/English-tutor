@@ -472,7 +472,7 @@ async function runDay() {
 
     if (pos >= tasks.length) {
       const finishedDay = day;
-      day = Math.min(day + 1, 50);
+      day = Math.min(day + 1, TOTAL_DAYS);
       pos = 0;
       savePos(day, pos);
       ui.main("Day " + finishedDay + " 완료! 수고하셨어요!");
@@ -589,7 +589,7 @@ $("btn-settings-save").onclick = () => {
   LS.koreanVoice = $("input-korean-voice").value;
   LS.englishVoice = $("input-english-voice").value;
   const d = parseInt($("input-day").value, 10);
-  if (d >= 1 && d <= 50 && d !== LS.progress.day) {
+  if (d >= 1 && d <= TOTAL_DAYS && d !== LS.progress.day) {
     LS.progress = { day: d, pos: 0 };
   }
   ui.show("home");
