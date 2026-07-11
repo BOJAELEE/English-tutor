@@ -46,3 +46,13 @@ function buildSessions(day) {
 function buildDayTasks(day) {
   return buildSessions(day).flatMap(s => s.tasks.map(t => ({ ...t, sessionName: s.name })));
 }
+
+/* 위치 이동 계산 (순수 함수, day-1의 마지막 문제까지 자유롭게 뒤로 이동 가능) */
+function advancePos(day, pos, direction) {
+  if (direction === "back") {
+    if (pos > 0) return { day, pos: pos - 1 };
+    if (day > 1) return { day: day - 1, pos: buildDayTasks(day - 1).length - 1 };
+    return { day, pos };
+  }
+  return { day, pos: pos + 1 };
+}

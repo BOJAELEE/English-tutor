@@ -9,8 +9,18 @@ const LS = {
   get engine() { return localStorage.getItem("engine") || "claude"; },
   set engine(v) { localStorage.setItem("engine", v); },
   get progress() {
-    try { return JSON.parse(localStorage.getItem("progress")) || { day: 1, session: 0, index: 0 }; }
-    catch { return { day: 1, session: 0, index: 0 }; }
+    let v;
+    try { v = JSON.parse(localStorage.getItem("progress")); } catch { v = null; }
+    if (!v) return { day: 1, pos: 0 };
+    if (typeof v.pos === "number") return v;
+    // 기존 {day, session, index} 형식 마이그레이션
+    const sessions = buildSessions(v.day || 1);
+    let pos = 0;
+    for (let i = 0; i < (v.session || 0); i++) pos += sessions[i] ? sessions[i].tasks.length : 0;
+    pos += v.index || 0;
+    const migrated = { day: v.day || 1, pos };
+    localStorage.setItem("progress", JSON.stringify(migrated));
+    return migrated;
   },
   set progress(v) { localStorage.setItem("progress", JSON.stringify(v)); },
   get cache() {
@@ -303,7 +313,7 @@ const ui = {
 };
 
 /* ==================== 학습 엔진 ==================== */
-const state = { running: false, paused: false, skip: false, quit: false };
+const state = { running: false, paused: false, skip: false, back: false, quit: false };
 
 function waitWhilePaused() {
   return new Promise(resolve => {
