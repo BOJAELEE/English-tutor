@@ -337,6 +337,36 @@ async function checkAnswer(p, question, heard) {
   return parseJson(raw);
 }
 
+/* ==================== 푸시 알림 ==================== */
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function enablePush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    alert("이 브라우저는 푸시 알림을 지원하지 않습니다.");
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") {
+    alert("알림 권한이 거부되었습니다. 브라우저 설정에서 알림을 허용해주세요.");
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+  });
+  const json = JSON.stringify(sub);
+  $("push-sub-output").value = json;
+  $("push-sub-area").classList.remove("hidden");
+}
+
 /* ==================== UI ==================== */
 const $ = id => document.getElementById(id);
 const ui = {
@@ -600,6 +630,12 @@ $("btn-settings-save").onclick = () => {
 
 $("btn-preview-korean").onclick = () => previewVoice("ko-KR", $("input-korean-voice").value);
 $("btn-preview-english").onclick = () => previewVoice("en-US", $("input-english-voice").value);
+$("btn-enable-push").onclick = () => enablePush().catch(e => alert("알림 설정 중 오류: " + e.message));
+$("btn-copy-sub").onclick = () => {
+  navigator.clipboard.writeText($("push-sub-output").value)
+    .then(() => alert("복사되었습니다."))
+    .catch(() => alert("복사에 실패했습니다. 직접 선택해서 복사해주세요."));
+};
 $("btn-reset").onclick = () => {
   if (confirm("학습 기록을 모두 초기화할까요? (Day 1부터 다시 시작)")) {
     localStorage.removeItem("progress");
@@ -612,5 +648,21 @@ $("btn-reset").onclick = () => {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
+
+/* 알림 탭 시 자동 시작 */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", e => {
+    if (e.data && e.data.type === "autostart" && currentKey() && !state.running) {
+      $("btn-start").click();
+    }
+  });
+}
+(function handleAutostartParam() {
+  const params = new URLSearchParams(location.search);
+  if (params.get("autostart") === "1") {
+    history.replaceState({}, "", location.pathname);
+    if (currentKey()) setTimeout(() => $("btn-start").click(), 0);
+  }
+})();
 
 refreshHome();

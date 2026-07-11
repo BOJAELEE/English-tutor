@@ -80,6 +80,15 @@
     <span id="day-range-label">현재 Day</span>
     <input type="number" id="input-day" min="1">
   </label>
+  <label class="field">
+    <span>아침 알림</span>
+    <button type="button" id="btn-enable-push" class="ctl-btn">알림 켜기</button>
+  </label>
+  <div id="push-sub-area" class="hidden">
+    <p style="font-size:13px;color:#9aa3c0">아래 내용을 복사해서 개발자에게 전달해주세요 (최초 1회만 필요).</p>
+    <textarea id="push-sub-output" readonly rows="4" style="width:100%;font-size:11px"></textarea>
+    <button type="button" id="btn-copy-sub" class="ctl-btn">복사</button>
+  </div>
   <button id="btn-settings-save" class="big-btn">저장</button>
   <button id="btn-reset" class="ctl-btn danger" style="margin-top:24px">학습 기록 전체 초기화</button>
 </div>
