@@ -1,0 +1,2 @@
+"use strict";
+const VAPID_PUBLIC_KEY = "BK2E2ipxG2rXE5DgLSLJQoQGeycekl_zoaS2xRvcDMlrObWDwzKihsHLb36qks2OpHAxhA9w7B5mFaVHHr0jJ9A";
