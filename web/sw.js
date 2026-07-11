@@ -27,3 +27,32 @@ self.addEventListener("fetch", e => {
       .catch(() => caches.match(e.request))
   );
 });
+
+self.addEventListener("push", e => {
+  let data = { title: "영어회화 연습 시작", body: "영어회화 연습 시작" };
+  try { if (e.data) data = e.data.json(); } catch {}
+  e.waitUntil(
+    self.registration.showNotification(data.title || "영어회화 연습 시작", {
+      body: data.body || "영어회화 연습 시작",
+      icon: "icon-192.png",
+      badge: "icon-192.png",
+    })
+  );
+});
+
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(clientList => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.postMessage({ type: "autostart" });
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow("./index.html?autostart=1");
+      }
+    })
+  );
+});
