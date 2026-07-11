@@ -1,5 +1,8 @@
 "use strict";
 
+/* 총 학습 일수 (패턴 개수 ÷ 4, 올림) */
+const TOTAL_DAYS = Math.ceil(PATTERNS.length / 4);
+
 /* ==================== 하루 커리큘럼 로직 (DOM 비의존, 테스트 가능) ==================== */
 
 function dayPatterns(day) { return PATTERNS.slice((day - 1) * 4, day * 4); }
