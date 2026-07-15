@@ -93,7 +93,7 @@ function previewVoice(lang, voiceURI) {
   });
 }
 
-function speak(text, lang) {
+function speakBrowser(text, lang) {
   return new Promise(resolve => {
     if (!text) return resolve();
     const u = new SpeechSynthesisUtterance(text);
@@ -122,6 +122,71 @@ function buildGoogleTtsRequestBody(text, lang, voiceName) {
     voice: { languageCode: lang, name: lang + "-Chirp3-HD-" + voiceName },
     audioConfig: { audioEncoding: "MP3" },
   };
+}
+
+let googleTtsAbort = null;   // 진행 중인 fetch를 취소하기 위한 AbortController
+let currentAudio = null;     // 현재 재생 중인 Audio 엘리먼트 (Google TTS 전용)
+let audioStopResolve = null; // 진행 중인 synthesizeAndPlayGoogle() 프라미스의 대기 중 resolve
+
+function synthesizeAndPlayGoogle(text, lang, voiceName) {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    googleTtsAbort = controller;
+    fetch(
+      "https://texttospeech.googleapis.com/v1/text:synthesize?key=" + encodeURIComponent(LS.googleTtsKey),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildGoogleTtsRequestBody(text, lang, voiceName)),
+        signal: controller.signal,
+      }
+    )
+      .then(res => {
+        if (!res.ok) return res.text().then(t => {
+          const err = new Error("Google TTS API 오류 " + res.status + ": " + t.slice(0, 200));
+          err.status = res.status;
+          throw err;
+        });
+        return res.json();
+      })
+      .then(data => {
+        googleTtsAbort = null;
+        if (!data.audioContent) throw new Error("Google TTS 응답에 audioContent 없음");
+        const audio = new Audio("data:audio/mp3;base64," + data.audioContent);
+        currentAudio = audio;
+        audioStopResolve = resolve;
+        audio.onended = () => { currentAudio = null; audioStopResolve = null; resolve(); };
+        audio.onerror = () => { currentAudio = null; audioStopResolve = null; reject(new Error("Google TTS 오디오 재생 오류")); };
+        return audio.play();
+      })
+      .catch(e => {
+        googleTtsAbort = null;
+        currentAudio = null;
+        if (e && e.name === "AbortError") { audioStopResolve = null; resolve(); return; }
+        audioStopResolve = null;
+        reject(e);
+      });
+  });
+}
+
+function speakGoogle(text, lang) {
+  if (!text) return Promise.resolve();
+  return synthesizeAndPlayGoogle(text, lang, resolveGoogleVoice(lang));
+}
+
+function stopCurrentAudio() {
+  if (googleTtsAbort) { googleTtsAbort.abort(); googleTtsAbort = null; }
+  if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
+  if (audioStopResolve) { const r = audioStopResolve; audioStopResolve = null; r(); }
+}
+
+async function speak(text, lang) {
+  if (!text) return;
+  if (LS.ttsEngine === "google" && LS.googleTtsKey) {
+    try { await speakGoogle(text, lang); return; }
+    catch (e) { console.error("Google TTS 실패 - 브라우저 음성으로 대체:", e); }
+  }
+  await speakBrowser(text, lang);
 }
 
 /* ==================== 음성: STT ==================== */
@@ -604,6 +669,7 @@ $("btn-start").onclick = async () => {
   catch (e) { if (!(e && e.quit)) console.error(e); }
   state.running = false;
   speechSynthesis.cancel();
+  stopCurrentAudio();
   if (wakeLock) { try { wakeLock.release(); } catch {} wakeLock = null; }
   ui.show("home");
   refreshHome();
@@ -612,16 +678,23 @@ $("btn-start").onclick = async () => {
 $("btn-pause").onclick = () => {
   state.paused = !state.paused;
   $("btn-pause").textContent = state.paused ? "재개" : "일시정지";
-  if (state.paused) speechSynthesis.pause(); else speechSynthesis.resume();
+  if (state.paused) {
+    speechSynthesis.pause();
+    if (currentAudio) currentAudio.pause();
+  } else {
+    speechSynthesis.resume();
+    if (currentAudio) currentAudio.play().catch(() => {});
+  }
 };
 
-$("btn-skip").onclick = () => { state.skip = true; speechSynthesis.cancel(); };
+$("btn-skip").onclick = () => { state.skip = true; speechSynthesis.cancel(); stopCurrentAudio(); };
 
-$("btn-back").onclick = () => { state.back = true; speechSynthesis.cancel(); };
+$("btn-back").onclick = () => { state.back = true; speechSynthesis.cancel(); stopCurrentAudio(); };
 
 $("btn-quit").onclick = () => {
   state.quit = true; state.paused = false;
   speechSynthesis.cancel();
+  stopCurrentAudio();
 };
 
 function openSettings() {
