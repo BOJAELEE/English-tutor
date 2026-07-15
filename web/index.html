@@ -66,15 +66,36 @@
     <span>Gemini API 키</span>
     <input type="password" id="input-geminikey" placeholder="AIza...">
   </label>
-  <label class="field">
+  <label class="field" id="field-korean-voice-browser">
     <span>한국어 음성</span>
     <select id="input-korean-voice"></select>
     <button type="button" id="btn-preview-korean" class="ctl-btn">미리듣기</button>
   </label>
-  <label class="field">
+  <label class="field" id="field-english-voice-browser">
     <span>영어 음성</span>
     <select id="input-english-voice"></select>
     <button type="button" id="btn-preview-english" class="ctl-btn">미리듣기</button>
+  </label>
+  <label class="field">
+    <span>TTS 음성 소스</span>
+    <select id="input-tts-engine">
+      <option value="browser">브라우저 내장 (무료)</option>
+      <option value="google">Google Cloud TTS (자연스러운 음성)</option>
+    </select>
+  </label>
+  <label class="field" id="field-google-tts-key">
+    <span>Google Cloud TTS API 키</span>
+    <input type="password" id="input-google-tts-key" placeholder="AIza...">
+  </label>
+  <label class="field" id="field-korean-voice-google">
+    <span>한국어 음성 (Google)</span>
+    <select id="input-google-korean-voice"></select>
+    <button type="button" id="btn-preview-google-korean" class="ctl-btn">미리듣기</button>
+  </label>
+  <label class="field" id="field-english-voice-google">
+    <span>영어 음성 (Google)</span>
+    <select id="input-google-english-voice"></select>
+    <button type="button" id="btn-preview-google-english" class="ctl-btn">미리듣기</button>
   </label>
   <label class="field">
     <span id="day-range-label">현재 Day</span>

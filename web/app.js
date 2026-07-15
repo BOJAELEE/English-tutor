@@ -93,6 +93,31 @@ function previewVoice(lang, voiceURI) {
   });
 }
 
+function populateGoogleVoiceSelect(selectEl, savedName) {
+  selectEl.textContent = "";
+  GOOGLE_TTS_VOICES.forEach(name => {
+    const o = document.createElement("option");
+    o.value = name; o.textContent = name;
+    selectEl.appendChild(o);
+  });
+  selectEl.value = GOOGLE_TTS_VOICES.includes(savedName) ? savedName : GOOGLE_TTS_DEFAULT_VOICE;
+}
+
+async function previewGoogleVoice(lang, voiceName) {
+  const sample = lang.startsWith("ko") ? "안녕하세요, 이 목소리로 학습을 진행합니다." : "Hello, I'm about to leave the house.";
+  try { await synthesizeAndPlayGoogle(sample, lang, voiceName); }
+  catch (e) { alert("Google TTS 미리듣기 실패: " + e.message); }
+}
+
+function updateTtsEngineFieldsVisibility() {
+  const isGoogle = $("input-tts-engine").value === "google";
+  $("field-google-tts-key").classList.toggle("hidden", !isGoogle);
+  $("field-korean-voice-browser").classList.toggle("hidden", isGoogle);
+  $("field-english-voice-browser").classList.toggle("hidden", isGoogle);
+  $("field-korean-voice-google").classList.toggle("hidden", !isGoogle);
+  $("field-english-voice-google").classList.toggle("hidden", !isGoogle);
+}
+
 function speakBrowser(text, lang) {
   return new Promise(resolve => {
     if (!text) return resolve();
@@ -706,6 +731,11 @@ function openSettings() {
   $("day-range-label").textContent = "현재 Day (1~" + TOTAL_DAYS + ")";
   populateVoiceSelect($("input-korean-voice"), "ko-KR", LS.koreanVoice);
   populateVoiceSelect($("input-english-voice"), "en-US", LS.englishVoice);
+  $("input-tts-engine").value = LS.ttsEngine;
+  $("input-google-tts-key").value = LS.googleTtsKey;
+  populateGoogleVoiceSelect($("input-google-korean-voice"), LS.googleKoreanVoice);
+  populateGoogleVoiceSelect($("input-google-english-voice"), LS.googleEnglishVoice);
+  updateTtsEngineFieldsVisibility();
   ui.show("settings");
 }
 $("btn-settings").onclick = openSettings;
@@ -718,6 +748,10 @@ $("btn-settings-save").onclick = () => {
   LS.geminiKey = newGeminiKey;
   LS.koreanVoice = $("input-korean-voice").value;
   LS.englishVoice = $("input-english-voice").value;
+  LS.ttsEngine = $("input-tts-engine").value;
+  LS.googleTtsKey = $("input-google-tts-key").value.trim();
+  LS.googleKoreanVoice = $("input-google-korean-voice").value;
+  LS.googleEnglishVoice = $("input-google-english-voice").value;
   const d = parseInt($("input-day").value, 10);
   if (d >= 1 && d <= TOTAL_DAYS && d !== LS.progress.day) {
     LS.progress = { day: d, pos: 0 };
@@ -728,6 +762,9 @@ $("btn-settings-save").onclick = () => {
 
 $("btn-preview-korean").onclick = () => previewVoice("ko-KR", $("input-korean-voice").value);
 $("btn-preview-english").onclick = () => previewVoice("en-US", $("input-english-voice").value);
+$("input-tts-engine").onchange = updateTtsEngineFieldsVisibility;
+$("btn-preview-google-korean").onclick = () => previewGoogleVoice("ko-KR", $("input-google-korean-voice").value);
+$("btn-preview-google-english").onclick = () => previewGoogleVoice("en-US", $("input-google-english-voice").value);
 $("btn-enable-push").onclick = () => enablePush().catch(e => alert("알림 설정 중 오류: " + e.message));
 $("btn-copy-sub").onclick = () => {
   navigator.clipboard.writeText($("push-sub-output").value)
