@@ -12,6 +12,14 @@ const LS = {
   set koreanVoice(v) { localStorage.setItem("koreanVoice", v); },
   get englishVoice() { return localStorage.getItem("englishVoice") || ""; },
   set englishVoice(v) { localStorage.setItem("englishVoice", v); },
+  get googleTtsKey() { return localStorage.getItem("googleTtsKey") || ""; },
+  set googleTtsKey(v) { localStorage.setItem("googleTtsKey", v); },
+  get ttsEngine() { return localStorage.getItem("ttsEngine") || "browser"; },
+  set ttsEngine(v) { localStorage.setItem("ttsEngine", v); },
+  get googleKoreanVoice() { return localStorage.getItem("googleKoreanVoice") || ""; },
+  set googleKoreanVoice(v) { localStorage.setItem("googleKoreanVoice", v); },
+  get googleEnglishVoice() { return localStorage.getItem("googleEnglishVoice") || ""; },
+  set googleEnglishVoice(v) { localStorage.setItem("googleEnglishVoice", v); },
   get progress() {
     let v;
     try { v = JSON.parse(localStorage.getItem("progress")); } catch { v = null; }
@@ -97,6 +105,23 @@ function speak(text, lang) {
     u.onerror = resolve;
     speechSynthesis.speak(u);
   });
+}
+
+/* ==================== 음성: Google Cloud TTS ==================== */
+const GOOGLE_TTS_VOICES = ["Aoede", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr"];
+const GOOGLE_TTS_DEFAULT_VOICE = "Aoede";
+
+function resolveGoogleVoice(lang) {
+  const saved = lang.startsWith("ko") ? LS.googleKoreanVoice : LS.googleEnglishVoice;
+  return GOOGLE_TTS_VOICES.includes(saved) ? saved : GOOGLE_TTS_DEFAULT_VOICE;
+}
+
+function buildGoogleTtsRequestBody(text, lang, voiceName) {
+  return {
+    input: { text },
+    voice: { languageCode: lang, name: lang + "-Chirp3-HD-" + voiceName },
+    audioConfig: { audioEncoding: "MP3" },
+  };
 }
 
 /* ==================== 음성: STT ==================== */
