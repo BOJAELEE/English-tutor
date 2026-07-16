@@ -224,14 +224,41 @@ function listen(lang, timeoutMs) {
     if (!SR) return resolve({ error: "unsupported" });
     const r = new SR();
     r.lang = lang;
+    r.continuous = true;
     r.interimResults = false;
     r.maxAlternatives = 1;
     let done = false;
-    const finish = res => { if (!done) { done = true; clearTimeout(timer); ui.mic(false); resolve(res); } };
+    let heard = "";
+    let silenceTimer = null;
+    const finish = res => {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        clearTimeout(silenceTimer);
+        ui.mic(false);
+        resolve(res);
+      }
+    };
+    const finishAfterSilence = () => {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        try { r.stop(); } catch {}
+        finish(heard ? { text: heard } : { error: "no-speech" });
+      }, 2000);
+    };
     const timer = setTimeout(() => { try { r.stop(); } catch {} finish({ error: "timeout" }); }, timeoutMs || 12000);
-    r.onresult = e => finish({ text: e.results[0][0].transcript });
+    r.onspeechstart = () => clearTimeout(silenceTimer);
+    r.onresult = e => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) heard += e.results[i][0].transcript;
+      }
+      if (heard) finishAfterSilence();
+    };
     r.onerror = e => finish({ error: e.error });
-    r.onend = () => finish({ error: "no-speech" });
+    r.onend = () => {
+      if (!done && heard) finishAfterSilence();
+      else finish({ error: "no-speech" });
+    };
     ui.mic(true);
     try { r.start(); } catch { finish({ error: "start-failed" }); }
   });
