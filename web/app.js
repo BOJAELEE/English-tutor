@@ -104,8 +104,10 @@ function populateGoogleVoiceSelect(selectEl, savedName) {
 }
 
 async function previewGoogleVoice(lang, voiceName) {
+  const key = $("input-google-tts-key").value.trim();
+  if (!key) { alert("먼저 API 키를 입력하세요."); return; }
   const sample = lang.startsWith("ko") ? "안녕하세요, 이 목소리로 학습을 진행합니다." : "Hello, I'm about to leave the house.";
-  try { await synthesizeAndPlayGoogle(sample, lang, voiceName); }
+  try { await synthesizeAndPlayGoogle(sample, lang, voiceName, key); }
   catch (e) { alert("Google TTS 미리듣기 실패: " + e.message); }
 }
 
@@ -153,12 +155,12 @@ let googleTtsAbort = null;   // 진행 중인 fetch를 취소하기 위한 Abort
 let currentAudio = null;     // 현재 재생 중인 Audio 엘리먼트 (Google TTS 전용)
 let audioStopResolve = null; // 진행 중인 synthesizeAndPlayGoogle() 프라미스의 대기 중 resolve
 
-function synthesizeAndPlayGoogle(text, lang, voiceName) {
+function synthesizeAndPlayGoogle(text, lang, voiceName, apiKey = LS.googleTtsKey) {
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     googleTtsAbort = controller;
     fetch(
-      "https://texttospeech.googleapis.com/v1/text:synthesize?key=" + encodeURIComponent(LS.googleTtsKey),
+      "https://texttospeech.googleapis.com/v1/text:synthesize?key=" + encodeURIComponent(apiKey),
       {
         method: "POST",
         headers: { "content-type": "application/json" },
