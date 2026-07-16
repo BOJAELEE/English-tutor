@@ -430,17 +430,18 @@ function repairJson(s) {
 
 /* 세션1: 한국어 상황 제시문 (캐시됨) */
 async function getKoreanPrompt(p, exIdx) {
-  const key = "p" + p.num + "_e" + exIdx;
+  const key = "p2_" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (cached) return cached;
   const ex = p.examples[exIdx];
   const raw = await callLLM(
     `영어 문장: "${ex}" (패턴: ${p.title})\n` +
     `학습자가 이 영어 문장을 말하도록 유도하는 한국어 안내문을 만드세요. ` +
-    `형식: 상황을 한 문장으로 묘사한 뒤, 해야 할 말을 한국어로 알려주세요. ` +
-    `예: "지금 막 집을 나서려는 상황이에요. '나 지금 막 나가려던 참이야'라고 영어로 말해보세요." ` +
+    `형식: 상황과 해야 할 뜻만 담은 25자 안팎의 짧은 한 문장. 부연 설명, 인사말, 반복 안내는 넣지 마세요. ` +
+    `예: "막 나가려던 참이에요. 영어로 말해보세요." ` +
     `영어 정답 문장은 절대 노출하지 마세요.\n` +
-    `JSON: {"prompt_ko": "..."}`
+    `JSON: {"prompt_ko": "..."}`,
+    80
   );
   const val = parseJson(raw).prompt_ko;
   LS.cacheSet(key, val);
