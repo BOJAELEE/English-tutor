@@ -588,11 +588,13 @@ const ui = {
   },
   clearConversationReview() {
     const box = $("conversation-review");
+    if (!box) return;
     box.textContent = "";
     box.classList.add("hidden");
   },
   showConversationReview(history, reviews) {
     const box = $("conversation-review");
+    if (!box) return;
     box.textContent = "";
     const title = document.createElement("div");
     title.className = "conversation-review-title";
