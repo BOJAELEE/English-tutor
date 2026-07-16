@@ -430,18 +430,18 @@ function repairJson(s) {
 
 /* 세션1: 한국어 상황 제시문 (캐시됨) */
 async function getKoreanPrompt(p, exIdx) {
-  const key = "p2_" + p.num + "_e" + exIdx;
+  const key = "p3_" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (cached) return cached;
   const ex = p.examples[exIdx];
   const raw = await callLLM(
     `영어 문장: "${ex}" (패턴: ${p.title})\n` +
     `학습자가 이 영어 문장을 말하도록 유도하는 한국어 안내문을 만드세요. ` +
-    `형식: 상황과 해야 할 뜻만 담은 25자 안팎의 짧은 한 문장. 부연 설명, 인사말, 반복 안내는 넣지 마세요. ` +
-    `예: "막 나가려던 참이에요. 영어로 말해보세요." ` +
+    `형식: 짧은 두 문장. 첫 문장은 15자 안팎의 상황 설명, 둘째 문장은 번역할 한국어 표현을 따옴표로 제시하고 "를 영어로 말해보세요."라고 쓰세요. ` +
+    `예: "막 나가려던 참이에요. '나 지금 막 나가려던 참이야'를 영어로 말해보세요." ` +
     `영어 정답 문장은 절대 노출하지 마세요.\n` +
     `JSON: {"prompt_ko": "..."}`,
-    80
+    100
   );
   const val = parseJson(raw).prompt_ko;
   LS.cacheSet(key, val);
@@ -641,6 +641,8 @@ async function runDay() {
   const prog = LS.progress;
   let day = prog.day;
   let pos = prog.pos;
+  let previousTask = null;
+  let arrivedByBack = false;
 
   while (true) {
     const tasks = buildDayTasks(day);
@@ -665,6 +667,10 @@ async function runDay() {
     if (pos === 0 || tasks[pos - 1].sessionName !== task.sessionName) {
       await step(() => speak(task.sessionName.replace("세션", "세션 ") + "을 시작합니다.", "ko-KR"));
     }
+    if (previousTask && !arrivedByBack && previousTask.sessionName === task.sessionName
+      && previousTask.p.num !== task.p.num) {
+      await step(() => speak("다음 패턴이에요.", "ko-KR"));
+    }
 
     try {
       if (task.kind === "pattern") await runPatternTask(task);
@@ -683,6 +689,8 @@ async function runDay() {
     const prevDay = day, prevPos = pos;
     const next = advancePos(day, pos, state.back ? "back" : "forward");
     day = next.day; pos = next.pos;
+    arrivedByBack = state.back;
+    previousTask = task;
     if (state.back && day === prevDay && pos === prevPos) {
       await step(() => speak("지금이 처음이에요.", "ko-KR"));
     }
