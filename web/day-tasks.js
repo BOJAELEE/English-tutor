@@ -1,11 +1,14 @@
 "use strict";
 
-/* 총 학습 일수 (패턴 개수 ÷ 4, 올림) */
-const TOTAL_DAYS = Math.ceil(PATTERNS.length / 4);
+const PATTERNS_PER_DAY = 2;
+const TOTAL_DAYS = Math.ceil(PATTERNS.length / PATTERNS_PER_DAY);
 
 /* ==================== 하루 커리큘럼 로직 (DOM 비의존, 테스트 가능) ==================== */
 
-function dayPatterns(day) { return PATTERNS.slice((day - 1) * 4, day * 4); }
+function dayPatterns(day) {
+  const start = (day - 1) * PATTERNS_PER_DAY;
+  return PATTERNS.slice(start, start + PATTERNS_PER_DAY);
+}
 
 /* 세션4 랜덤 복습 선택을 날짜별로 고정 (뒤로/앞으로 이동해도 같은 문제 유지) */
 function getReviewPicks(day, pool) {
@@ -38,10 +41,11 @@ function buildSessions(day) {
   if (day > 1) {
     const prev = dayPatterns(day - 1);
     sessions.push({ name: "세션3 어제 복습", tasks: prev.map(p => ({ kind: "situation", p })) });
-    const pool = PATTERNS.slice(0, (day - 1) * 4);
+    const pool = PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
     const picks = getReviewPicks(day, pool);
     sessions.push({ name: "세션4 전체 복습", tasks: picks.map(p => ({ kind: "situation", p })) });
   }
+  sessions.push({ name: "마무리 일상 회화", tasks: [{ kind: "conversation", patterns: today }] });
   return sessions;
 }
 

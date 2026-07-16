@@ -1,6 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
+const CURRICULUM_VERSION = "2-patterns-per-day-v1";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -44,6 +45,17 @@ const LS = {
     localStorage.setItem("promptCache", JSON.stringify(c));
   },
 };
+
+function applyCurriculumVersion() {
+  if (localStorage.getItem("curriculumVersion") === CURRICULUM_VERSION) return;
+  localStorage.removeItem("progress");
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith("reviewPicks_")) localStorage.removeItem(key);
+  }
+  localStorage.setItem("curriculumVersion", CURRICULUM_VERSION);
+}
+applyCurriculumVersion();
 
 /* ==================== 음성: TTS ==================== */
 let voices = [];
@@ -482,6 +494,54 @@ async function checkAnswer(p, question, heard) {
   return parseJson(raw);
 }
 
+/* ==================== 일상 회화 ==================== */
+function conversationPatternContext(patterns) {
+  return patterns.map(p => `패턴 ${p.num}: ${p.title} (${p.examples.join(" / ")})`).join("\n");
+}
+
+function conversationHistoryText(history) {
+  return history.map((turn, i) =>
+    `AI ${i + 1}: ${turn.ai}\n학습자 ${i + 1}: ${turn.user || "[답변 없음]"}`
+  ).join("\n");
+}
+
+async function startDailyConversation(patterns) {
+  const raw = await callLLM(
+    `오늘 학습한 패턴:\n${conversationPatternContext(patterns)}\n\n` +
+    `당신은 친절한 영어 회화 상대입니다. 위 패턴을 자연스럽게 쓸 수 있는 일상 상황으로 짧은 대화를 시작하세요. ` +
+    `학습자가 영어로 답할 수 있도록 영어 질문 한 문장만 말하세요. 한국어, 해설, 교정은 넣지 마세요.\n` +
+    `JSON: {"reply_en": "..."}`,
+    120
+  );
+  return parseJson(raw);
+}
+
+async function continueDailyConversation(patterns, history) {
+  const raw = await callLLM(
+    `오늘 학습한 패턴:\n${conversationPatternContext(patterns)}\n\n` +
+    `대화 기록:\n${conversationHistoryText(history)}\n\n` +
+    `당신은 친절한 영어 회화 상대입니다. 학습자의 답변이 배운 패턴과 달라도 교정하거나 대화를 멈추지 말고, ` +
+    `의미를 자연스럽게 받아 짧은 영어 답변과 다음 질문 한 문장으로 대화를 이어가세요. ` +
+    `답변이 없으면 짧게 격려하고 다음 질문을 하세요. 한국어와 해설은 넣지 마세요.\n` +
+    `JSON: {"reply_en": "..."}`,
+    140
+  );
+  return parseJson(raw);
+}
+
+async function reviewDailyConversation(patterns, history) {
+  const raw = await callLLM(
+    `오늘 학습한 패턴:\n${conversationPatternContext(patterns)}\n\n` +
+    `대화 기록:\n${conversationHistoryText(history)}\n\n` +
+    `학습자 답변 3개를 코칭하세요. 배운 패턴을 쓰지 않았어도 실패로 판단하지 말고 자연스러운 대화를 칭찬하며, ` +
+    `각 답변에 더 자연스러운 영어 문장과 짧은 한국어 이유를 제시하세요. 답변이 없으면 그 상황에서 쓸 수 있는 짧은 영어 문장을 제시하세요. ` +
+    `summary_ko는 운전 중 들을 2문장 이하의 짧은 총평입니다.\n` +
+    `JSON: {"summary_ko": "...", "reviews": [{"natural_en": "...", "coaching_ko": "..."}, {"natural_en": "...", "coaching_ko": "..."}, {"natural_en": "...", "coaching_ko": "..."}]}`,
+    360
+  );
+  return parseJson(raw);
+}
+
 /* ==================== 푸시 알림 ==================== */
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -526,6 +586,36 @@ const ui = {
     $("ph-session").textContent = session;
     $("ph-progress").textContent = done + " / " + total;
   },
+  clearConversationReview() {
+    const box = $("conversation-review");
+    box.textContent = "";
+    box.classList.add("hidden");
+  },
+  showConversationReview(history, reviews) {
+    const box = $("conversation-review");
+    box.textContent = "";
+    const title = document.createElement("div");
+    title.className = "conversation-review-title";
+    title.textContent = "대화 리뷰";
+    box.appendChild(title);
+    history.forEach((turn, i) => {
+      const review = reviews[i] || {};
+      const item = document.createElement("div");
+      item.className = "conversation-review-item";
+      const heard = document.createElement("div");
+      heard.className = "conversation-review-heard";
+      heard.textContent = "내 답변: " + (turn.user || "답변 없음");
+      const natural = document.createElement("div");
+      natural.className = "conversation-review-natural";
+      natural.textContent = "더 자연스럽게: " + (review.natural_en || turn.user || "Try a short answer.");
+      const coaching = document.createElement("div");
+      coaching.className = "conversation-review-coaching";
+      coaching.textContent = review.coaching_ko || "다음에는 짧게라도 영어로 답해보세요.";
+      item.append(heard, natural, coaching);
+      box.appendChild(item);
+    });
+    box.classList.remove("hidden");
+  },
 };
 
 /* ==================== 학습 엔진 ==================== */
@@ -560,6 +650,23 @@ async function listenWithRetry() {
     if (i < 2) {
       ui.sub("(잘 안 들렸어요. 다시 말해주세요)");
       await step(() => speak("잘 못 들었어요. 다시 말해주세요.", "ko-KR"));
+    }
+  }
+  return null;
+}
+
+async function listenWithConversationRetry() {
+  for (let i = 0; i < 3; i++) {
+    if (state.skip || state.back || state.quit) return null;
+    const r = await step(() => listen("en-US", 12000));
+    if (r.text) return r.text;
+    if (r.error === "unsupported") {
+      await step(() => speak("Speech recognition is not supported in this browser.", "en-US"));
+      throw { quit: true };
+    }
+    if (i < 2) {
+      ui.sub("I didn't catch that. Please try again.");
+      await step(() => speak("I didn't catch that. Please try again.", "en-US"));
     }
   }
   return null;
@@ -635,6 +742,51 @@ async function runSituationTask(task) {
   await shadow(modelEn);
 }
 
+async function runDailyConversationTask(task) {
+  const history = [];
+  ui.main("Starting a short conversation...");
+  ui.sub("");
+  const opening = await step(() => startDailyConversation(task.patterns));
+  let aiLine = opening.reply_en;
+  if (!aiLine) throw new Error("일상 회화 시작 문장을 받지 못했습니다.");
+
+  for (let turn = 0; turn < 3; turn++) {
+    ui.main(aiLine);
+    ui.sub("");
+    await step(() => speak(aiLine, "en-US"));
+    if (state.skip || state.back) return;
+
+    const heard = await listenWithConversationRetry();
+    if (state.skip || state.back) return;
+    history.push({ ai: aiLine, user: heard || "" });
+    ui.sub(heard ? "You said: " + heard : "No answer recorded.");
+
+    if (turn < 2) {
+      const next = await step(() => continueDailyConversation(task.patterns, history));
+      aiLine = next.reply_en;
+      if (!aiLine) throw new Error("다음 일상 회화 문장을 받지 못했습니다.");
+    }
+  }
+
+  ui.main("Let's review your conversation.");
+  ui.sub("");
+  const result = await step(() => reviewDailyConversation(task.patterns, history));
+  if (state.skip || state.back) return;
+  const rawReviews = Array.isArray(result.reviews) ? result.reviews : [];
+  const reviews = history.map((turn, i) => ({
+    natural_en: rawReviews[i] && rawReviews[i].natural_en || turn.user || "Try a short answer.",
+    coaching_ko: rawReviews[i] && rawReviews[i].coaching_ko || "다음에는 짧게라도 영어로 답해보세요.",
+  }));
+  ui.showConversationReview(history, reviews);
+  const summary = result.summary_ko || "대화를 잘 이어갔어요. 아래의 더 자연스러운 표현을 확인해 보세요.";
+  await step(() => speak(summary, "ko-KR"));
+  if (state.skip || state.back) return;
+  for (const review of reviews.slice(0, history.length)) {
+    if (review.natural_en) await step(() => speak(review.natural_en, "en-US"));
+    if (state.skip || state.back) return;
+  }
+}
+
 function savePos(day, pos) { LS.progress = { day, pos }; }
 
 async function runDay() {
@@ -661,6 +813,7 @@ async function runDay() {
     state.skip = false;
     state.back = false;
     const task = tasks[pos];
+    ui.clearConversationReview();
     ui.header(day, task.sessionName, pos + 1, tasks.length);
     $("btn-back").disabled = (day === 1 && pos === 0);
 
@@ -674,7 +827,8 @@ async function runDay() {
 
     try {
       if (task.kind === "pattern") await runPatternTask(task);
-      else await runSituationTask(task);
+      else if (task.kind === "situation") await runSituationTask(task);
+      else if (task.kind === "conversation") await runDailyConversationTask(task);
     } catch (e) {
       if (e && e.quit) throw e;
       // API 오류 등: 음성 안내 후 잠시 대기, 같은 문제 재시도 (위치 이동 없음)
@@ -714,7 +868,8 @@ function refreshHome() {
   $("home-day").textContent = "Day " + prog.day;
   const pats = dayPatterns(prog.day);
   const lines = pats.map(p => "패턴 " + p.num + ". " + p.title);
-  if (prog.day > 1) lines.push("+ 어제 복습 4개, 전체 복습 2개");
+  if (prog.day > 1) lines.push("+ 어제 복습 " + PATTERNS_PER_DAY + "개, 전체 복습 2개");
+  lines.push("+ 마무리 일상 회화");
   $("home-plan").innerHTML = lines.join("<br>");
   const engineName = LS.engine === "gemini" ? "Gemini" : "Claude";
   $("home-warning").textContent = currentKey() ? "" : "설정에서 " + engineName + " API 키를 먼저 입력해주세요.";

@@ -69,6 +69,13 @@ h1 { font-size: 24px; }
 }
 #status-main { font-size: 24px; line-height: 1.5; font-weight: bold; }
 #status-sub { font-size: 22px; line-height: 1.5; color: #6ee7a0; font-weight: 600; min-height: 34px; }
+.conversation-review { max-height: 42vh; overflow-y: auto; text-align: left; }
+.conversation-review-title { font-size: 18px; font-weight: bold; margin-bottom: 12px; }
+.conversation-review-item { border-top: 1px solid #3a415e; padding: 12px 0; }
+.conversation-review-item:first-of-type { border-top: none; }
+.conversation-review-heard { color: #c3cae0; font-size: 14px; }
+.conversation-review-natural { color: #6ee7a0; font-size: 17px; font-weight: bold; margin-top: 6px; }
+.conversation-review-coaching { color: #eef0f6; font-size: 14px; line-height: 1.5; margin-top: 5px; }
 
 .mic {
   display: flex; align-items: center; justify-content: center; gap: 10px;
