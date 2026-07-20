@@ -59,6 +59,8 @@ applyCurriculumVersion();
 
 /* ==================== 음성: TTS ==================== */
 let voices = [];
+const KOREAN_SPEECH_RATE = 1.2;
+const CONVERSATION_LISTEN_TIMEOUT_MS = 20000;
 function loadVoices() { voices = speechSynthesis.getVoices(); }
 loadVoices();
 if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = loadVoices;
@@ -98,7 +100,7 @@ function previewVoice(lang, voiceURI) {
       const v = voices.find(x => x.voiceURI === voiceURI);
       if (v) u.voice = v;
     }
-    u.rate = lang.startsWith("en") ? 0.92 : 1.0;
+    u.rate = lang.startsWith("en") ? 0.92 : KOREAN_SPEECH_RATE;
     u.onend = resolve;
     u.onerror = resolve;
     speechSynthesis.speak(u);
@@ -139,7 +141,7 @@ function speakBrowser(text, lang) {
     u.lang = lang;
     const v = pickVoice(lang);
     if (v) u.voice = v;
-    u.rate = lang.startsWith("en") ? 0.92 : 1.0;
+    u.rate = lang.startsWith("en") ? 0.92 : KOREAN_SPEECH_RATE;
     u.onend = resolve;
     u.onerror = resolve;
     speechSynthesis.speak(u);
@@ -159,7 +161,10 @@ function buildGoogleTtsRequestBody(text, lang, voiceName) {
   return {
     input: { text },
     voice: { languageCode: lang, name: lang + "-Chirp3-HD-" + voiceName },
-    audioConfig: { audioEncoding: "MP3" },
+    audioConfig: {
+      audioEncoding: "MP3",
+      speakingRate: lang.startsWith("ko") ? KOREAN_SPEECH_RATE : 1.0,
+    },
   };
 }
 
@@ -231,7 +236,7 @@ async function speak(text, lang) {
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-function listen(lang, timeoutMs) {
+function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   return new Promise(resolve => {
     if (!SR) return resolve({ error: "unsupported" });
     const r = new SR();
@@ -242,14 +247,24 @@ function listen(lang, timeoutMs) {
     let done = false;
     let heard = "";
     let silenceTimer = null;
+    let restartTimer = null;
     const finish = res => {
       if (!done) {
         done = true;
         clearTimeout(timer);
         clearTimeout(silenceTimer);
+        clearTimeout(restartTimer);
         ui.mic(false);
         resolve(res);
       }
+    };
+    const restartIfWaiting = () => {
+      if (!keepListeningOnNoSpeech || done) return false;
+      clearTimeout(restartTimer);
+      restartTimer = setTimeout(() => {
+        try { r.start(); } catch { finish({ error: "start-failed" }); }
+      }, 100);
+      return true;
     };
     const finishAfterSilence = () => {
       clearTimeout(silenceTimer);
@@ -266,9 +281,13 @@ function listen(lang, timeoutMs) {
       }
       if (heard) finishAfterSilence();
     };
-    r.onerror = e => finish({ error: e.error });
+    r.onerror = e => {
+      if (e.error === "no-speech" && restartIfWaiting()) return;
+      finish({ error: e.error });
+    };
     r.onend = () => {
       if (!done && heard) finishAfterSilence();
+      else if (restartIfWaiting()) return;
       else finish({ error: "no-speech" });
     };
     ui.mic(true);
@@ -660,7 +679,7 @@ async function listenWithRetry() {
 async function listenWithConversationRetry() {
   for (let i = 0; i < 3; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", 12000));
+    const r = await step(() => listen("en-US", CONVERSATION_LISTEN_TIMEOUT_MS, true));
     if (r.text) return r.text;
     if (r.error === "unsupported") {
       await step(() => speak("Speech recognition is not supported in this browser.", "en-US"));
@@ -819,9 +838,6 @@ async function runDay() {
     ui.header(day, task.sessionName, pos + 1, tasks.length);
     $("btn-back").disabled = (day === 1 && pos === 0);
 
-    if (pos === 0 || tasks[pos - 1].sessionName !== task.sessionName) {
-      await step(() => speak(task.sessionName.replace("세션", "세션 ") + "을 시작합니다.", "ko-KR"));
-    }
     if (previousTask && !arrivedByBack && previousTask.sessionName === task.sessionName
       && previousTask.p.num !== task.p.num) {
       await step(() => speak("다음 패턴이에요.", "ko-KR"));
