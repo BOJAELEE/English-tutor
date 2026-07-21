@@ -60,7 +60,7 @@ applyCurriculumVersion();
 /* ==================== 음성: TTS ==================== */
 let voices = [];
 const KOREAN_SPEECH_RATE = 1.2;
-const CONVERSATION_LISTEN_TIMEOUT_MS = 20000;
+const ANSWER_LISTEN_TIMEOUT_MS = 25000;
 function loadVoices() { voices = speechSynthesis.getVoices(); }
 loadVoices();
 if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = loadVoices;
@@ -549,16 +549,35 @@ async function continueDailyConversation(patterns, history) {
 }
 
 async function reviewDailyConversation(patterns, history) {
-  const raw = await callLLM(
+  const prompt =
     `오늘 학습한 패턴:\n${conversationPatternContext(patterns)}\n\n` +
     `대화 기록:\n${conversationHistoryText(history)}\n\n` +
     `학습자 답변 3개를 코칭하세요. 배운 패턴을 쓰지 않았어도 실패로 판단하지 말고 자연스러운 대화를 칭찬하며, ` +
-    `각 답변에 더 자연스러운 영어 문장과 짧은 한국어 이유를 제시하세요. 답변이 없으면 그 상황에서 쓸 수 있는 짧은 영어 문장을 제시하세요. ` +
+    `각 답변에 12단어 이하의 더 자연스러운 영어 문장과 20자 이하의 짧은 한국어 이유를 제시하세요. 답변이 없으면 그 상황에서 쓸 수 있는 짧은 영어 문장을 제시하세요. ` +
     `summary_ko는 운전 중 들을 2문장 이하의 짧은 총평입니다.\n` +
-    `JSON: {"summary_ko": "...", "reviews": [{"natural_en": "...", "coaching_ko": "..."}, {"natural_en": "...", "coaching_ko": "..."}, {"natural_en": "...", "coaching_ko": "..."}]}`,
-    360
-  );
-  return parseJson(raw);
+    `JSON: {"summary_ko": "...", "reviews": [{"natural_en": "...", "coaching_ko": "..."}, {"natural_en": "...", "coaching_ko": "..."}, {"natural_en": "...", "coaching_ko": "..."}]}`;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const raw = await callLLM(
+        prompt + (attempt ? "\n반드시 설명 없이 유효한 JSON만 출력하세요." : ""),
+        600
+      );
+      const review = parseJson(raw);
+      if (!review || typeof review !== "object") throw new Error("리뷰 형식이 올바르지 않습니다.");
+      return review;
+    } catch (e) {
+      console.error("일상 회화 리뷰 생성 실패:", e);
+    }
+  }
+
+  return {
+    summary_ko: "대화를 끝까지 잘 이어갔어요. 아래의 추천 표현을 다음 대화에서 편하게 써보세요.",
+    reviews: history.map(turn => ({
+      natural_en: turn.user || "Could you say that again?",
+      coaching_ko: turn.user ? "의미가 잘 전달되었어요." : "다음에는 짧게 대답해보세요.",
+    })),
+  };
 }
 
 /* ==================== 푸시 알림 ==================== */
@@ -662,7 +681,7 @@ async function step(fn) {
 async function listenWithRetry() {
   for (let i = 0; i < 3; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", 12000));
+    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
     if (r.text) return r.text;
     if (r.error === "unsupported") {
       await step(() => speak("이 브라우저는 음성인식을 지원하지 않습니다. 크롬을 사용해주세요.", "ko-KR"));
@@ -679,7 +698,7 @@ async function listenWithRetry() {
 async function listenWithConversationRetry() {
   for (let i = 0; i < 3; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", CONVERSATION_LISTEN_TIMEOUT_MS, true));
+    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
     if (r.text) return r.text;
     if (r.error === "unsupported") {
       await step(() => speak("Speech recognition is not supported in this browser.", "en-US"));
@@ -698,7 +717,7 @@ async function shadow(modelEn) {
   ui.sub("따라 말해보세요 (쉐도잉)");
   await step(() => speak("따라 해보세요.", "ko-KR"));
   await step(() => speak(modelEn, "en-US"));
-  const r = await step(() => listen("en-US", 12000));
+  const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
   if (r.text) ui.sub("들린 내용: " + r.text);
   await step(() => speak("좋아요.", "ko-KR"));
 }
