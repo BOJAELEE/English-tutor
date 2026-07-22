@@ -242,17 +242,17 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     const r = new SR();
     r.lang = lang;
     r.continuous = true;
-    r.interimResults = false;
+    r.interimResults = true;
     r.maxAlternatives = 1;
     let done = false;
     let heard = "";
-    let silenceTimer = null;
+    let speechEndTimer = null;
     let restartTimer = null;
     const finish = res => {
       if (!done) {
         done = true;
         clearTimeout(timer);
-        clearTimeout(silenceTimer);
+        clearTimeout(speechEndTimer);
         clearTimeout(restartTimer);
         ui.mic(false);
         resolve(res);
@@ -266,27 +266,31 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       }, 100);
       return true;
     };
-    const finishAfterSilence = () => {
-      clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(() => {
-        try { r.stop(); } catch {}
+    const finishAfterSpeechEnd = () => {
+      if (done) return;
+      clearTimeout(speechEndTimer);
+      speechEndTimer = setTimeout(() => {
         finish(heard ? { text: heard } : { error: "no-speech" });
-      }, 2000);
+        try { r.stop(); } catch {}
+      }, 1500);
     };
-    const timer = setTimeout(() => { try { r.stop(); } catch {} finish({ error: "timeout" }); }, timeoutMs || 12000);
-    r.onspeechstart = () => clearTimeout(silenceTimer);
+    const timer = setTimeout(() => {
+      finish(heard ? { text: heard } : { error: "timeout" });
+      try { r.stop(); } catch {}
+    }, timeoutMs || 12000);
+    r.onspeechstart = () => {
+      clearTimeout(speechEndTimer);
+    };
+    r.onspeechend = finishAfterSpeechEnd;
     r.onresult = e => {
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) heard += e.results[i][0].transcript;
-      }
-      if (heard) finishAfterSilence();
+      heard = Array.from(e.results, result => result[0].transcript).join("").trim();
     };
     r.onerror = e => {
-      if (e.error === "no-speech" && restartIfWaiting()) return;
-      finish({ error: e.error });
+      if (e.error === "no-speech" && !heard && restartIfWaiting()) return;
+      finish(heard ? { text: heard } : { error: e.error });
     };
     r.onend = () => {
-      if (!done && heard) finishAfterSilence();
+      if (!done && heard) finishAfterSpeechEnd();
       else if (restartIfWaiting()) return;
       else finish({ error: "no-speech" });
     };
@@ -829,6 +833,18 @@ async function runDailyConversationTask(task) {
 
 function savePos(day, pos) { LS.progress = { day, pos }; }
 
+const SESSION_INTROS = {
+  "세션1 패턴 연습": "세션 1, 오늘 패턴 연습입니다.",
+  "세션2 상황 연습": "세션 2, 오늘 상황 연습입니다.",
+  "세션3 어제 복습": "세션 3, 어제 복습입니다.",
+  "세션4 전체 복습": "세션 4, 전체 복습입니다.",
+  "마무리 일상 회화": "마무리 일상 회화입니다.",
+};
+
+function sessionIntro(sessionName) {
+  return SESSION_INTROS[sessionName] || sessionName + "입니다.";
+}
+
 async function runDay() {
   const prog = LS.progress;
   let day = prog.day;
@@ -857,7 +873,9 @@ async function runDay() {
     ui.header(day, task.sessionName, pos + 1, tasks.length);
     $("btn-back").disabled = (day === 1 && pos === 0);
 
-    if (previousTask && !arrivedByBack && previousTask.sessionName === task.sessionName
+    if (!previousTask || previousTask.sessionName !== task.sessionName) {
+      await step(() => speak(sessionIntro(task.sessionName), "ko-KR"));
+    } else if (!arrivedByBack && previousTask.sessionName === task.sessionName
       && previousTask.p.num !== task.p.num) {
       await step(() => speak("다음 패턴이에요.", "ko-KR"));
     }
