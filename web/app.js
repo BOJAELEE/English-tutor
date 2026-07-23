@@ -236,6 +236,43 @@ async function speak(text, lang) {
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+function transcriptWords(text) {
+  return text.trim().split(/\s+/).filter(Boolean);
+}
+
+function comparableWord(word) {
+  return word.toLowerCase().replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
+}
+
+function sameTranscriptWords(a, b) {
+  return comparableWord(a) === comparableWord(b);
+}
+
+function mergeTranscript(previous, next) {
+  const previousWords = transcriptWords(previous);
+  const nextWords = transcriptWords(next);
+  if (!previousWords.length) return nextWords.join(" ");
+  if (!nextWords.length) return previousWords.join(" ");
+
+  const previousIsPrefix = previousWords.length <= nextWords.length
+    && previousWords.every((word, i) => sameTranscriptWords(word, nextWords[i]));
+  if (previousIsPrefix) return nextWords.join(" ");
+
+  const nextIsPrefix = nextWords.length <= previousWords.length
+    && nextWords.every((word, i) => sameTranscriptWords(word, previousWords[i]));
+  if (nextIsPrefix) return previousWords.join(" ");
+
+  let overlap = Math.min(previousWords.length, nextWords.length);
+  while (overlap > 0 && !previousWords.slice(-overlap)
+    .every((word, i) => sameTranscriptWords(word, nextWords[i]))) overlap--;
+  return previousWords.concat(nextWords.slice(overlap)).join(" ");
+}
+
+function mergeRecognitionResults(results) {
+  return Array.from(results, result => result[0].transcript)
+    .reduce((transcript, segment) => mergeTranscript(transcript, segment), "");
+}
+
 function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   return new Promise(resolve => {
     if (!SR) return resolve({ error: "unsupported" });
@@ -283,7 +320,7 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     };
     r.onspeechend = finishAfterSpeechEnd;
     r.onresult = e => {
-      heard = Array.from(e.results, result => result[0].transcript).join("").trim();
+      heard = mergeRecognitionResults(e.results);
     };
     r.onerror = e => {
       if (e.error === "no-speech" && !heard && restartIfWaiting()) return;
