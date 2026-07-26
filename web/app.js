@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "284-patterns-2-per-day-v1";
+const CURRICULUM_VERSION = "284-patterns-2-per-day-v2";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -49,6 +49,7 @@ const LS = {
 function applyCurriculumVersion() {
   if (localStorage.getItem("curriculumVersion") === CURRICULUM_VERSION) return;
   localStorage.removeItem("progress");
+  localStorage.removeItem("promptCache");
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const key = localStorage.key(i);
     if (key && key.startsWith("reviewPicks_")) localStorage.removeItem(key);
