@@ -1,4 +1,4 @@
-const CACHE = "et-v3";
+const CACHE = "et-v4";
 const ASSETS = [
   "./", "index.html", "style.css", "app.js", "patterns.js", "day-tasks.js",
   "push-config.js", "manifest.json", "icon-192.png", "icon-512.png",

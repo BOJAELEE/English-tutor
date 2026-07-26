@@ -661,7 +661,7 @@ const ui = {
   main(t) { $("status-main").textContent = t; },
   mainWithHighlightedQuote(t) {
     const el = $("status-main");
-    const quotePattern = /"[^"]+"|'[^']+'|“[^”]+”|‘[^’]+’|「[^」]+」|『[^』]+』/g;
+    const quotePattern = /["'“”‘’「」『』]([^"'“”‘’「」『』]+)["'“”‘’「」『』]/g;
     let lastIndex = 0;
 
     el.textContent = "";
