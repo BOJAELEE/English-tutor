@@ -659,6 +659,22 @@ const ui = {
     ["home", "practice", "settings"].forEach(s => $("screen-" + s).classList.toggle("hidden", s !== name));
   },
   main(t) { $("status-main").textContent = t; },
+  mainWithHighlightedQuote(t) {
+    const el = $("status-main");
+    const quotePattern = /"[^"]+"|'[^']+'|“[^”]+”|‘[^’]+’|「[^」]+」|『[^』]+』/g;
+    let lastIndex = 0;
+
+    el.textContent = "";
+    for (const match of t.matchAll(quotePattern)) {
+      el.append(document.createTextNode(t.slice(lastIndex, match.index)));
+      const target = document.createElement("span");
+      target.className = "target-phrase";
+      target.textContent = match[0];
+      el.append(target);
+      lastIndex = match.index + match[0].length;
+    }
+    el.append(document.createTextNode(t.slice(lastIndex)));
+  },
   sub(t) { $("status-sub").textContent = t; },
   mic(on) { $("mic-indicator").classList.toggle("hidden", !on); },
   header(day, session, done, total) {
@@ -769,7 +785,7 @@ async function runPatternTask(task) {
   ui.main("패턴 " + p.num + ": " + p.title);
   ui.sub("상황 안내를 준비 중...");
   const promptKo = await step(() => getKoreanPrompt(p, exIdx));
-  ui.main(promptKo);
+  ui.mainWithHighlightedQuote(promptKo);
   ui.sub("");
   await step(() => speak(promptKo, "ko-KR"));
   if (state.skip || state.back) return;
