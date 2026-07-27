@@ -60,8 +60,9 @@ applyCurriculumVersion();
 
 /* ==================== 음성: TTS ==================== */
 let voices = [];
-const KOREAN_SPEECH_RATE = 1.2;
-const ANSWER_LISTEN_TIMEOUT_MS = 25000;
+const KOREAN_SPEECH_RATE = 1.0;
+const ANSWER_LISTEN_TIMEOUT_MS = 45000;
+const ANSWER_SPEECH_PAUSE_MS = 5000;
 function loadVoices() { voices = speechSynthesis.getVoices(); }
 loadVoices();
 if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = loadVoices;
@@ -269,9 +270,16 @@ function mergeTranscript(previous, next) {
   return previousWords.concat(nextWords.slice(overlap)).join(" ");
 }
 
-function mergeRecognitionResults(results) {
-  return Array.from(results, result => result[0].transcript)
+function mergeRecognitionResults(results, alternativeIndex = 0) {
+  return Array.from(results, result => (result[alternativeIndex] || result[0]).transcript)
     .reduce((transcript, segment) => mergeTranscript(transcript, segment), "");
+}
+
+function mergeRecognitionAlternatives(results) {
+  const alternativeCount = Array.from(results)
+    .reduce((count, result) => Math.max(count, result.length), 0);
+  return Array.from({ length: alternativeCount }, (_, i) => mergeRecognitionResults(results, i))
+    .filter((text, i, all) => text && all.indexOf(text) === i);
 }
 
 function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
@@ -281,9 +289,10 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     r.lang = lang;
     r.continuous = true;
     r.interimResults = true;
-    r.maxAlternatives = 1;
+    r.maxAlternatives = 5;
     let done = false;
     let heard = "";
+    let heardAlternatives = [];
     let speechEndTimer = null;
     let restartTimer = null;
     const finish = res => {
@@ -300,7 +309,10 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       if (!keepListeningOnNoSpeech || done) return false;
       clearTimeout(restartTimer);
       restartTimer = setTimeout(() => {
-        try { r.start(); } catch { finish({ error: "start-failed" }); }
+        try { r.start(); }
+        catch (e) {
+          if (e.name !== "InvalidStateError") finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "start-failed" });
+        }
       }, 100);
       return true;
     };
@@ -308,12 +320,12 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       if (done) return;
       clearTimeout(speechEndTimer);
       speechEndTimer = setTimeout(() => {
-        finish(heard ? { text: heard } : { error: "no-speech" });
+        finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
         try { r.stop(); } catch {}
-      }, 1500);
+      }, ANSWER_SPEECH_PAUSE_MS);
     };
     const timer = setTimeout(() => {
-      finish(heard ? { text: heard } : { error: "timeout" });
+      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "timeout" });
       try { r.stop(); } catch {}
     }, timeoutMs || 12000);
     r.onspeechstart = () => {
@@ -321,16 +333,18 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     };
     r.onspeechend = finishAfterSpeechEnd;
     r.onresult = e => {
-      heard = mergeRecognitionResults(e.results);
+      heardAlternatives = mergeRecognitionAlternatives(e.results);
+      heard = heardAlternatives[0] || heard;
     };
     r.onerror = e => {
-      if (e.error === "no-speech" && !heard && restartIfWaiting()) return;
-      finish(heard ? { text: heard } : { error: e.error });
+      if (e.error === "no-speech" && restartIfWaiting()) return;
+      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: e.error });
     };
     r.onend = () => {
-      if (!done && heard) finishAfterSpeechEnd();
-      else if (restartIfWaiting()) return;
-      else finish({ error: "no-speech" });
+      if (done) return;
+      if (heard) finishAfterSpeechEnd();
+      if (restartIfWaiting()) return;
+      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
     };
     ui.mic(true);
     try { r.start(); } catch { finish({ error: "start-failed" }); }
@@ -537,19 +551,27 @@ async function getQuestion(p) {
 }
 
 /* 교정 */
-async function checkPattern(targetEn, heard) {
+function recognitionCandidates(heard, alternatives = []) {
+  return [...new Set([heard, ...alternatives].filter(Boolean))].slice(0, 5);
+}
+
+async function checkPattern(p, targetEn, heard, alternatives) {
+  const candidates = JSON.stringify(recognitionCandidates(heard, alternatives));
   const raw = await callLLM(
-    `목표 영어 문장: "${targetEn}"\n학습자 발화(음성인식 결과): "${heard}"\n` +
-    `학습자가 목표 문장을 올바르게 말했는지 판정하세요. 음성인식 특성상 대소문자/구두점/축약형 차이는 정답으로 인정하세요.\n` +
+    `학습 목표 패턴: "${p.title}"\n목표 영어 문장: "${targetEn}"\n` +
+    `음성인식 첫 결과: "${heard}"\n음성인식 후보: ${candidates}\n` +
+    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. 차 안 소음 때문에 인식이 틀릴 수 있으므로 후보를 함께 비교하되, 의미 없는 단어 조각만으로 정답 처리하지는 마세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "가장 자연스러운 영어 문장"}`
   );
   return parseJson(raw);
 }
 
-async function checkAnswer(p, question, heard) {
+async function checkAnswer(p, question, heard, alternatives) {
+  const candidates = JSON.stringify(recognitionCandidates(heard, alternatives));
   const raw = await callLLM(
-    `패턴: "${p.title}"\n질문: "${question}"\n학습자 답변(음성인식 결과): "${heard}"\n` +
-    `학습자가 이 패턴을 사용해 자연스럽게 대답했는지 판정하세요. 의미가 통하면 관대하게 평가하세요.\n` +
+    `학습 목표 패턴: "${p.title}"\n질문: "${question}"\n` +
+    `음성인식 첫 결과: "${heard}"\n음성인식 후보: ${candidates}\n` +
+    `판정 기준: 모범 답안과 정확히 같은 문장을 요구하지 마세요. 학습자가 이 패턴(자연스러운 축약·시제 변화 포함)을 사용하고 질문에 맞는 뜻을 전달했다면 correct는 true입니다. 차 안 소음으로 인식이 불완전할 수 있으므로 후보를 함께 비교하되, 의미 없는 단어 조각만으로 정답 처리하지는 마세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "이 패턴을 사용한 자연스러운 모범 답변 한 문장"}`
   );
   return parseJson(raw);
@@ -740,7 +762,7 @@ async function listenWithRetry() {
   for (let i = 0; i < 3; i++) {
     if (state.skip || state.back || state.quit) return null;
     const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
-    if (r.text) return r.text;
+    if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("이 브라우저는 음성인식을 지원하지 않습니다. 크롬을 사용해주세요.", "ko-KR"));
       throw { quit: true };
@@ -757,7 +779,7 @@ async function listenWithConversationRetry() {
   for (let i = 0; i < 3; i++) {
     if (state.skip || state.back || state.quit) return null;
     const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
-    if (r.text) return r.text;
+    if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("Speech recognition is not supported in this browser.", "en-US"));
       throw { quit: true };
@@ -790,17 +812,18 @@ async function runPatternTask(task) {
   await step(() => speak(promptKo, "ko-KR"));
   if (state.skip || state.back) return;
 
-  const heard = await listenWithRetry();
+  const recognition = await listenWithRetry();
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
-  if (heard === null) {
+  if (recognition === null) {
     feedbackKo = "괜찮아요. 정답을 알려드릴게요.";
     modelEn = ex;
   } else {
+    const heard = recognition.text;
     ui.sub("들린 내용: " + heard);
     ui.main("확인 중...");
-    const result = await step(() => checkPattern(ex, heard));
+    const result = await step(() => checkPattern(p, ex, heard, recognition.alternatives));
     feedbackKo = result.feedback_ko;
     modelEn = result.model_en || ex;
   }
@@ -820,17 +843,18 @@ async function runSituationTask(task) {
   await step(() => speak(q.question_en, "en-US"));
   if (state.skip || state.back) return;
 
-  const heard = await listenWithRetry();
+  const recognition = await listenWithRetry();
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
-  if (heard === null) {
+  if (recognition === null) {
     feedbackKo = "괜찮아요. 모범 답변을 알려드릴게요.";
     modelEn = p.examples[0];
   } else {
+    const heard = recognition.text;
     ui.sub("들린 내용: " + heard);
     ui.main("확인 중...");
-    const result = await step(() => checkAnswer(p, q.question_en, heard));
+    const result = await step(() => checkAnswer(p, q.question_en, heard, recognition.alternatives));
     feedbackKo = result.feedback_ko;
     modelEn = result.model_en || p.examples[0];
   }
@@ -854,8 +878,9 @@ async function runDailyConversationTask(task) {
     await step(() => speak(aiLine, "en-US"));
     if (state.skip || state.back) return;
 
-    const heard = await listenWithConversationRetry();
+    const recognition = await listenWithConversationRetry();
     if (state.skip || state.back) return;
+    const heard = recognition && recognition.text;
     history.push({ ai: aiLine, user: heard || "" });
     ui.sub(heard ? "You said: " + heard : "No answer recorded.");
 
