@@ -60,9 +60,9 @@ applyCurriculumVersion();
 
 /* ==================== 음성: TTS ==================== */
 let voices = [];
-const KOREAN_SPEECH_RATE = 1.0;
+const KOREAN_SPEECH_RATE = 1.1;
 const ANSWER_LISTEN_TIMEOUT_MS = 45000;
-const ANSWER_SPEECH_PAUSE_MS = 5000;
+const ANSWER_SPEECH_PAUSE_MS = 3500;
 function loadVoices() { voices = speechSynthesis.getVoices(); }
 loadVoices();
 if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = loadVoices;
@@ -238,51 +238,28 @@ async function speak(text, lang) {
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-function transcriptWords(text) {
-  return text.trim().split(/\s+/).filter(Boolean);
+function recognitionText(results, alternativeIndex = 0) {
+  return Array.from(results, result => (result[alternativeIndex] || result[0]).transcript.trim())
+    .filter(Boolean).join(" ");
 }
 
-function comparableWord(word) {
-  return word.toLowerCase().replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
-}
-
-function sameTranscriptWords(a, b) {
-  return comparableWord(a) === comparableWord(b);
-}
-
-function mergeTranscript(previous, next) {
-  const previousWords = transcriptWords(previous);
-  const nextWords = transcriptWords(next);
-  if (!previousWords.length) return nextWords.join(" ");
-  if (!nextWords.length) return previousWords.join(" ");
-
-  const previousIsPrefix = previousWords.length <= nextWords.length
-    && previousWords.every((word, i) => sameTranscriptWords(word, nextWords[i]));
-  if (previousIsPrefix) return nextWords.join(" ");
-
-  const nextIsPrefix = nextWords.length <= previousWords.length
-    && nextWords.every((word, i) => sameTranscriptWords(word, previousWords[i]));
-  if (nextIsPrefix) return previousWords.join(" ");
-
-  let overlap = Math.min(previousWords.length, nextWords.length);
-  while (overlap > 0 && !previousWords.slice(-overlap)
-    .every((word, i) => sameTranscriptWords(word, nextWords[i]))) overlap--;
-  return previousWords.concat(nextWords.slice(overlap)).join(" ");
-}
-
-function mergeRecognitionResults(results, alternativeIndex = 0) {
-  return Array.from(results, result => (result[alternativeIndex] || result[0]).transcript)
-    .reduce((transcript, segment) => mergeTranscript(transcript, segment), "");
-}
-
-function mergeRecognitionAlternatives(results) {
+function recognitionAlternatives(results) {
   const alternativeCount = Array.from(results)
     .reduce((count, result) => Math.max(count, result.length), 0);
-  return Array.from({ length: alternativeCount }, (_, i) => mergeRecognitionResults(results, i))
+  const fullSentences = Array.from({ length: alternativeCount }, (_, i) => recognitionText(results, i));
+  const individualSegments = Array.from(results, result => result[0].transcript.trim());
+  return [...fullSentences, ...individualSegments]
     .filter((text, i, all) => text && all.indexOf(text) === i);
 }
 
-function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
+function applyRecognitionHints(recognition, hints) {
+  const Phrase = window.SpeechRecognitionPhrase;
+  if (!Phrase || !("phrases" in recognition)) return;
+  const uniqueHints = [...new Set(hints.map(text => text.trim()).filter(Boolean))].slice(0, 20);
+  try { recognition.phrases = uniqueHints.map(text => new Phrase(text, 8)); } catch {}
+}
+
+function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
   return new Promise(resolve => {
     if (!SR) return resolve({ error: "unsupported" });
     const r = new SR();
@@ -290,11 +267,31 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     r.continuous = true;
     r.interimResults = true;
     r.maxAlternatives = 5;
+    applyRecognitionHints(r, hints);
     let done = false;
     let heard = "";
     let heardAlternatives = [];
+    let committedText = "";
+    let committedAlternatives = [];
     let speechEndTimer = null;
     let restartTimer = null;
+    const heardResult = () => {
+      const text = [committedText, heard].filter(Boolean).join(" ");
+      const alternatives = [
+        text,
+        ...heardAlternatives.map(candidate => [committedText, candidate].filter(Boolean).join(" ")),
+        ...committedAlternatives,
+        ...heardAlternatives,
+      ].filter((candidate, i, all) => candidate && all.indexOf(candidate) === i);
+      return { text, alternatives };
+    };
+    const commitCurrentResult = () => {
+      if (!heard) return;
+      committedText = [committedText, heard].filter(Boolean).join(" ");
+      committedAlternatives = [...new Set([...committedAlternatives, ...heardAlternatives])];
+      heard = "";
+      heardAlternatives = [];
+    };
     const finish = res => {
       if (!done) {
         done = true;
@@ -311,7 +308,7 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       restartTimer = setTimeout(() => {
         try { r.start(); }
         catch (e) {
-          if (e.name !== "InvalidStateError") finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "start-failed" });
+          if (e.name !== "InvalidStateError") finish((heard || committedText) ? heardResult() : { error: "start-failed" });
         }
       }, 100);
       return true;
@@ -320,12 +317,12 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       if (done) return;
       clearTimeout(speechEndTimer);
       speechEndTimer = setTimeout(() => {
-        finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
+        finish((heard || committedText) ? heardResult() : { error: "no-speech" });
         try { r.stop(); } catch {}
       }, ANSWER_SPEECH_PAUSE_MS);
     };
     const timer = setTimeout(() => {
-      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "timeout" });
+      finish((heard || committedText) ? heardResult() : { error: "timeout" });
       try { r.stop(); } catch {}
     }, timeoutMs || 12000);
     r.onspeechstart = () => {
@@ -333,18 +330,21 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     };
     r.onspeechend = finishAfterSpeechEnd;
     r.onresult = e => {
-      heardAlternatives = mergeRecognitionAlternatives(e.results);
+      heardAlternatives = recognitionAlternatives(e.results);
       heard = heardAlternatives[0] || heard;
     };
     r.onerror = e => {
       if (e.error === "no-speech" && restartIfWaiting()) return;
-      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: e.error });
+      finish((heard || committedText) ? heardResult() : { error: e.error });
     };
     r.onend = () => {
       if (done) return;
-      if (heard) finishAfterSpeechEnd();
+      if (heard) {
+        finishAfterSpeechEnd();
+        commitCurrentResult();
+      }
       if (restartIfWaiting()) return;
-      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
+      finish(committedText ? heardResult() : { error: "no-speech" });
     };
     ui.mic(true);
     try { r.start(); } catch { finish({ error: "start-failed" }); }
@@ -758,10 +758,10 @@ async function step(fn) {
 }
 
 /* 듣기: 실패 시 재요청, 3회 실패하면 null 반환 */
-async function listenWithRetry() {
+async function listenWithRetry(hints = []) {
   for (let i = 0; i < 3; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, hints));
     if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("이 브라우저는 음성인식을 지원하지 않습니다. 크롬을 사용해주세요.", "ko-KR"));
@@ -775,10 +775,10 @@ async function listenWithRetry() {
   return null;
 }
 
-async function listenWithConversationRetry() {
+async function listenWithConversationRetry(hints = []) {
   for (let i = 0; i < 3; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, hints));
     if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("Speech recognition is not supported in this browser.", "en-US"));
@@ -797,7 +797,7 @@ async function shadow(modelEn) {
   ui.sub("따라 말해보세요 (쉐도잉)");
   await step(() => speak("따라 해보세요.", "ko-KR"));
   await step(() => speak(modelEn, "en-US"));
-  const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+  const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [modelEn]));
   if (r.text) ui.sub("들린 내용: " + r.text);
   await step(() => speak("좋아요.", "ko-KR"));
 }
@@ -812,7 +812,7 @@ async function runPatternTask(task) {
   await step(() => speak(promptKo, "ko-KR"));
   if (state.skip || state.back) return;
 
-  const recognition = await listenWithRetry();
+  const recognition = await listenWithRetry([p.title, ...p.examples]);
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
@@ -843,7 +843,7 @@ async function runSituationTask(task) {
   await step(() => speak(q.question_en, "en-US"));
   if (state.skip || state.back) return;
 
-  const recognition = await listenWithRetry();
+  const recognition = await listenWithRetry([p.title, ...p.examples]);
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
@@ -878,7 +878,8 @@ async function runDailyConversationTask(task) {
     await step(() => speak(aiLine, "en-US"));
     if (state.skip || state.back) return;
 
-    const recognition = await listenWithConversationRetry();
+    const hints = task.patterns.flatMap(p => [p.title, ...p.examples]);
+    const recognition = await listenWithConversationRetry(hints);
     if (state.skip || state.back) return;
     const heard = recognition && recognition.text;
     history.push({ ai: aiLine, user: heard || "" });
