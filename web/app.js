@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "263-patterns-prefixes-removed-v1";
+const CURRICULUM_VERSION = "263-thinking-levels-v1";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -589,6 +589,40 @@ async function getQuestion(p) {
   return val;
 }
 
+/* 영어식 사고 훈련 안내문 (캐시됨) */
+async function getTrainingPrompt(p, exIdx, level) {
+  const key = "thinking_v1_l" + level + "_p" + p.num + "_e" + exIdx;
+  const cached = LS.cache[key];
+  if (cached && typeof cached === "object") return cached;
+  const ex = p.examples[exIdx];
+  const levelGuide = level === 1
+    ? `영어식 사고 thought는 관점 설명 한 문장과 화살표 정보 순서를 포함한 두 짧은 문장으로 쓰세요. 별도의 지시 문구는 넣지 마세요. target_ko에는 정확한 한국어 번역 한 문장을 쓰세요.`
+    : `영어식 사고 thought는 화살표 정보 순서만 짧게 쓰세요. target_ko는 빈 문자열로 두고, core_meaning에는 완성된 번역 문장이 아닌 짧은 핵심 의미만 쓰세요.`;
+  const raw = await callLLM(
+    `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
+    `영어식 사고 훈련용 한국어 안내를 만드세요. 상황과 intent는 각각 한 짧은 문장으로 구체적으로 쓰고, 영어 정답은 절대 노출하지 마세요. ${levelGuide}\n` +
+    `JSON: {"situation":"...", "intent":"...", "thought":"...", "target_ko":"...", "core_meaning":"..."}`,
+    180
+  );
+  const val = parseJson(raw);
+  if (!val.situation || !val.intent || !val.thought || !val.core_meaning || (level === 1 && !val.target_ko)) {
+    throw new Error("훈련 안내문 형식이 올바르지 않습니다.");
+  }
+  LS.cacheSet(key, val);
+  return val;
+}
+
+function trainingPromptText(prompt, level) {
+  const lines = [
+    "상황: " + prompt.situation,
+    "의도: " + prompt.intent,
+    "영어식 사고: " + prompt.thought,
+  ];
+  if (level === 1) lines.push("말할 문장: '" + prompt.target_ko + "'");
+  else lines.push("핵심 의미: " + prompt.core_meaning);
+  return lines.join("\n\n");
+}
+
 /* 교정 */
 function recognitionCandidates(heard, alternatives = []) {
   return [...new Set([heard, ...alternatives].filter(Boolean))].slice(0, 12);
@@ -848,7 +882,7 @@ async function shadow(modelEn) {
   await step(() => speak("좋아요.", "ko-KR"));
 }
 
-async function runPatternTask(task) {
+async function runPatternTaskLegacy(task) {
   const { p, ex, exIdx } = task;
   ui.main("패턴 " + p.num + ": " + p.title);
   ui.sub("상황 안내를 준비 중...");
@@ -879,7 +913,7 @@ async function runPatternTask(task) {
   await shadow(modelEn);
 }
 
-async function runSituationTask(task) {
+async function runSituationTaskLegacy(task) {
   const { p } = task;
   ui.main("패턴 " + p.num + ": " + p.title);
   ui.sub("질문을 준비 중...");
@@ -908,6 +942,60 @@ async function runSituationTask(task) {
   await step(() => speak(feedbackKo, "ko-KR"));
   if (state.skip || state.back) return;
   await shadow(modelEn);
+}
+
+async function runGuidedPatternTask(task) {
+  const { p, ex, exIdx } = task;
+  const level = task.trainingLevel || 1;
+  ui.main("패턴 " + p.num + ": " + p.title);
+  ui.sub("안내를 준비 중...");
+  const prompt = await step(() => getTrainingPrompt(p, exIdx, level));
+  const promptText = trainingPromptText(prompt, level);
+  ui.mainWithHighlightedQuote(promptText);
+  ui.sub("");
+  await step(() => speak(promptText, "ko-KR"));
+  if (state.skip || state.back) return;
+
+  const recognition = await listenWithRetry([p.title, ...p.examples]);
+  if (state.skip || state.back) return;
+
+  let feedbackKo, modelEn;
+  if (recognition === null) {
+    feedbackKo = "괜찮아요. 자연스러운 문장을 확인해보세요.";
+    modelEn = ex;
+  } else {
+    const heard = recognition.text;
+    ui.sub("들은 내용: " + heard);
+    ui.main("확인 중...");
+    const result = await step(() => checkPattern(p, ex, heard, recognition.alternatives));
+    feedbackKo = sanitizeFeedback(result.feedback_ko);
+    modelEn = result.model_en || ex;
+  }
+
+  ui.main(feedbackKo + "\n\n자연스러운 문장:\n" + modelEn);
+  ui.sub("");
+  await step(() => speak(feedbackKo, "ko-KR"));
+  await step(() => speak(modelEn, "en-US"));
+  if (state.skip || state.back || level !== 1) return;
+
+  ui.main("핵심 의미:\n" + prompt.core_meaning);
+  ui.sub("이 의미만 보고 한 번 더 말해보세요.");
+  await step(() => speak("핵심 의미입니다. " + prompt.core_meaning + " 한 번 더 말해보세요.", "ko-KR"));
+  await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [p.title, ...p.examples]));
+}
+
+async function runPatternTask(task) {
+  await runGuidedPatternTask(task);
+}
+
+async function runSituationTask(task) {
+  const exIdx = 0;
+  await runGuidedPatternTask({
+    ...task,
+    ex: task.p.examples[exIdx],
+    exIdx,
+    trainingLevel: 2,
+  });
 }
 
 async function runDailyConversationTask(task) {

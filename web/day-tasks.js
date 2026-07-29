@@ -31,21 +31,21 @@ function getReviewPicks(day, pool) {
 
 function buildSessions(day) {
   const today = dayPatterns(day);
-  const patternTasks = patterns => patterns.flatMap(p =>
-    p.examples.map((ex, exIdx) => ({ kind: "pattern", p, ex, exIdx }))
+  const patternTasks = (patterns, trainingLevel) => patterns.flatMap(p =>
+    p.examples.map((ex, exIdx) => ({ kind: "pattern", p, ex, exIdx, trainingLevel }))
   );
-  const s1 = patternTasks(today);
-  const s2 = today.map(p => ({ kind: "situation", p }));
+  const s1 = patternTasks(today, 1);
+  const s2 = today.map(p => ({ kind: "situation", p, trainingLevel: 2 }));
   const sessions = [
     { name: "세션1 패턴 연습", tasks: s1 },
     { name: "세션2 상황 연습", tasks: s2 },
   ];
   if (day > 1) {
     const prev = dayPatterns(day - 1);
-    sessions.push({ name: "세션3 어제 복습", tasks: patternTasks(prev) });
+    sessions.push({ name: "세션3 어제 복습", tasks: patternTasks(prev, 2) });
     const pool = PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
     const picks = getReviewPicks(day, pool);
-    sessions.push({ name: "세션4 전체 복습", tasks: patternTasks(picks) });
+    sessions.push({ name: "세션4 전체 복습", tasks: patternTasks(picks, 2) });
   }
   sessions.push({ name: "마무리 일상 회화", tasks: [{ kind: "conversation", patterns: today }] });
   return sessions;
