@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "263-thinking-levels-v3";
+const CURRICULUM_VERSION = "263-thinking-levels-v4";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -594,8 +594,9 @@ async function getQuestion(p) {
 /* 영어식 사고 훈련 안내문 (캐시됨) */
 function isValidTrainingPrompt(val, level) {
   const text = val && Object.values(val).join(" ");
+  const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
   return val && typeof val === "object" && val.situation && val.intent && val.thought &&
-    val.core_meaning && (level !== 1 || val.target_ko) && !/[A-Za-z]/.test(text);
+    val.core_meaning && (level !== 1 || val.target_ko) && !/[A-Za-z]/.test(text) && !generic.test(text);
 }
 
 function parseTrainingPromptText(raw, level) {
@@ -609,7 +610,7 @@ function parseTrainingPromptText(raw, level) {
 }
 
 async function getTrainingPrompt(p, exIdx, level) {
-  const key = "thinking_v3_l" + level + "_p" + p.num + "_e" + exIdx;
+  const key = "thinking_v4_l" + level + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (isValidTrainingPrompt(cached, level)) return cached;
   const ex = p.examples[exIdx];
@@ -619,10 +620,12 @@ async function getTrainingPrompt(p, exIdx, level) {
   const format = level === 1
     ? "상황: ...\n의도: ...\n사고: ...\n문장: ...\n핵심: ..."
     : "상황: ...\n의도: ...\n사고: ...\n문장:\n핵심: ...";
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     const raw = await callLLM(
       `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-      `이 목표 문장에만 맞는 구체적인 영어식 사고 훈련 안내를 만드세요. 추상적이거나 일반적인 요청 문구는 쓰지 마세요. ${levelGuide}\n` +
+      `이 목표 문장에만 맞는 구체적인 영어식 사고 훈련 안내를 만드세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ` +
+      `의도에는 이 문장에서 실제로 전달하려는 내용을 한국어로 구체적으로 쓰세요. 사고에는 이 문장에만 맞는 한국어 의미 요소를 화살표 순서로 넣으세요. ` +
+      `다른 문제에도 그대로 쓸 수 있는 일반적인 말(예: 원하는 내용을 공손하게 말하기, 자연스럽게 전달하기, 구체적인 내용)은 절대 쓰지 마세요. ${levelGuide}\n` +
       `정확히 다음 형식의 다섯 줄만 출력하세요.\n${format}`,
       240,
       TRAINING_PROMPT_SYSTEM
