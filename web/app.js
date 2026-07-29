@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "263-thinking-levels-v2";
+const CURRICULUM_VERSION = "263-thinking-levels-v3";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -393,15 +393,17 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
 /* ==================== AI API (Claude / Gemini) ==================== */
 const SYSTEM_PROMPT =
   "당신은 한국인을 위한 영어회화 튜터입니다. 반드시 요청된 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.";
+const TRAINING_PROMPT_SYSTEM =
+  "당신은 한국인을 위한 영어식 사고 훈련 안내 작성자입니다. 요청한 다섯 줄만 한국어로 출력하세요. 영어 알파벳, 영어 단어, 패턴명, 정답 문장은 절대 출력하지 마세요.";
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
 /* 일시 오류(과부하/한도)는 자동 재시도 */
-async function callLLM(user, maxTokens) {
+async function callLLM(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
   let lastErr;
   for (let i = 0; i < 3; i++) {
     try {
-      return await (LS.engine === "gemini" ? callGemini(user, maxTokens) : callClaude(user, maxTokens));
+      return await (LS.engine === "gemini" ? callGemini(user, maxTokens, systemPrompt) : callClaude(user, maxTokens, systemPrompt));
     } catch (e) {
       lastErr = e;
       if (e.status === 429 || e.status >= 500) {
@@ -451,7 +453,7 @@ async function resolveGeminiModel() {
   return model;
 }
 
-async function callGemini(user, maxTokens) {
+async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
   const model = await resolveGeminiModel();
   const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model
     + ":generateContent?key=" + encodeURIComponent(LS.geminiKey);
@@ -459,11 +461,11 @@ async function callGemini(user, maxTokens) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
       generationConfig: {
         maxOutputTokens: (maxTokens || 400) + 2000, // thinking 토큰 여유분
-        responseMimeType: "application/json",
+        ...(systemPrompt === SYSTEM_PROMPT ? { responseMimeType: "application/json" } : {}),
       },
     }),
   });
@@ -497,7 +499,7 @@ async function callGemini(user, maxTokens) {
   return text;
 }
 
-async function callClaude(user, maxTokens) {
+async function callClaude(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -509,7 +511,7 @@ async function callClaude(user, maxTokens) {
     body: JSON.stringify({
       model: "claude-haiku-4-5",
       max_tokens: maxTokens || 512,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: "user", content: user }],
     }),
   });
@@ -596,42 +598,42 @@ function isValidTrainingPrompt(val, level) {
     val.core_meaning && (level !== 1 || val.target_ko) && !/[A-Za-z]/.test(text);
 }
 
-function fallbackTrainingPrompt(level) {
-  return {
-    situation: "일상적인 상황에서 원하는 내용을 공손하게 말합니다.",
-    intent: "상대에게 내 생각이나 요청을 자연스럽게 전달합니다.",
-    thought: level === 1
-      ? "내가 전하고 싶은 뜻을 먼저 잡습니다. → 원하는 내용 → 구체적인 내용"
-      : "원하는 내용 → 구체적인 내용",
-    target_ko: level === 1 ? "원하는 내용을 공손하게 말해보세요." : "",
-    core_meaning: "원하는 내용을 자연스럽게 전달하기",
-  };
+function parseTrainingPromptText(raw, level) {
+  const labels = { 상황: "situation", 의도: "intent", 사고: "thought", 문장: "target_ko", 핵심: "core_meaning" };
+  const val = { target_ko: "" };
+  for (const line of String(raw).replace(/\*\*/g, "").split(/\r?\n/)) {
+    const match = line.trim().match(/^(상황|의도|사고|문장|핵심)\s*[:：]\s*(.+)$/);
+    if (match) val[labels[match[1]]] = match[2].trim();
+  }
+  return isValidTrainingPrompt(val, level) ? val : null;
 }
 
 async function getTrainingPrompt(p, exIdx, level) {
-  const key = "thinking_v2_l" + level + "_p" + p.num + "_e" + exIdx;
+  const key = "thinking_v3_l" + level + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (isValidTrainingPrompt(cached, level)) return cached;
   const ex = p.examples[exIdx];
   const levelGuide = level === 1
-    ? `영어식 사고 thought는 관점 설명 한 문장과 화살표 정보 순서를 포함한 두 짧은 문장으로 쓰세요. target_ko에는 정확한 한국어 번역 한 문장을, core_meaning에는 짧은 핵심 의미를 쓰세요.`
-    : `영어식 사고 thought는 화살표 정보 순서만 짧게 쓰세요. target_ko는 빈 문자열로 두고, core_meaning에는 완성된 번역 문장이 아닌 짧은 핵심 의미만 쓰세요.`;
-  try {
+    ? "사고 줄에는 관점 설명 한 문장과 화살표 정보 순서를 넣으세요. 문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
+    : "사고 줄에는 화살표 정보 순서만 넣으세요. 문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
+  const format = level === 1
+    ? "상황: ...\n의도: ...\n사고: ...\n문장: ...\n핵심: ..."
+    : "상황: ...\n의도: ...\n사고: ...\n문장:\n핵심: ...";
+  for (let attempt = 0; attempt < 2; attempt++) {
     const raw = await callLLM(
       `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-      `영어식 사고 훈련용 안내를 만드세요. 모든 값은 한국어로만 쓰고 영어 알파벳, 패턴명, 목표 문장, 시작 표현은 절대 출력하지 마세요. 상황과 intent는 각각 한 짧은 문장으로 구체적으로 쓰세요. ${levelGuide}\n` +
-      `설명이나 코드블록 없이 유효한 JSON만 출력하세요. JSON: {"situation":"...", "intent":"...", "thought":"...", "target_ko":"...", "core_meaning":"..."}`,
-      180
+      `이 목표 문장에만 맞는 구체적인 영어식 사고 훈련 안내를 만드세요. 추상적이거나 일반적인 요청 문구는 쓰지 마세요. ${levelGuide}\n` +
+      `정확히 다음 형식의 다섯 줄만 출력하세요.\n${format}`,
+      240,
+      TRAINING_PROMPT_SYSTEM
     );
-    const val = parseJson(raw);
-    if (!isValidTrainingPrompt(val, level)) throw new Error("invalid training prompt");
-    LS.cacheSet(key, val);
-    return val;
-  } catch {
-    const fallback = fallbackTrainingPrompt(level);
-    LS.cacheSet(key, fallback);
-    return fallback;
+    const val = parseTrainingPromptText(raw, level);
+    if (val) {
+      LS.cacheSet(key, val);
+      return val;
+    }
   }
+  throw new Error("훈련 안내문을 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
 }
 
 function trainingPromptText(prompt, level) {
