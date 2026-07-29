@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "263-thinking-levels-v1";
+const CURRICULUM_VERSION = "263-thinking-levels-v2";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -590,26 +590,48 @@ async function getQuestion(p) {
 }
 
 /* 영어식 사고 훈련 안내문 (캐시됨) */
+function isValidTrainingPrompt(val, level) {
+  const text = val && Object.values(val).join(" ");
+  return val && typeof val === "object" && val.situation && val.intent && val.thought &&
+    val.core_meaning && (level !== 1 || val.target_ko) && !/[A-Za-z]/.test(text);
+}
+
+function fallbackTrainingPrompt(level) {
+  return {
+    situation: "일상적인 상황에서 원하는 내용을 공손하게 말합니다.",
+    intent: "상대에게 내 생각이나 요청을 자연스럽게 전달합니다.",
+    thought: level === 1
+      ? "내가 전하고 싶은 뜻을 먼저 잡습니다. → 원하는 내용 → 구체적인 내용"
+      : "원하는 내용 → 구체적인 내용",
+    target_ko: level === 1 ? "원하는 내용을 공손하게 말해보세요." : "",
+    core_meaning: "원하는 내용을 자연스럽게 전달하기",
+  };
+}
+
 async function getTrainingPrompt(p, exIdx, level) {
-  const key = "thinking_v1_l" + level + "_p" + p.num + "_e" + exIdx;
+  const key = "thinking_v2_l" + level + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
-  if (cached && typeof cached === "object") return cached;
+  if (isValidTrainingPrompt(cached, level)) return cached;
   const ex = p.examples[exIdx];
   const levelGuide = level === 1
-    ? `영어식 사고 thought는 관점 설명 한 문장과 화살표 정보 순서를 포함한 두 짧은 문장으로 쓰세요. 별도의 지시 문구는 넣지 마세요. target_ko에는 정확한 한국어 번역 한 문장을 쓰세요.`
+    ? `영어식 사고 thought는 관점 설명 한 문장과 화살표 정보 순서를 포함한 두 짧은 문장으로 쓰세요. target_ko에는 정확한 한국어 번역 한 문장을, core_meaning에는 짧은 핵심 의미를 쓰세요.`
     : `영어식 사고 thought는 화살표 정보 순서만 짧게 쓰세요. target_ko는 빈 문자열로 두고, core_meaning에는 완성된 번역 문장이 아닌 짧은 핵심 의미만 쓰세요.`;
-  const raw = await callLLM(
-    `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-    `영어식 사고 훈련용 한국어 안내를 만드세요. 상황과 intent는 각각 한 짧은 문장으로 구체적으로 쓰고, 영어 정답은 절대 노출하지 마세요. ${levelGuide}\n` +
-    `JSON: {"situation":"...", "intent":"...", "thought":"...", "target_ko":"...", "core_meaning":"..."}`,
-    180
-  );
-  const val = parseJson(raw);
-  if (!val.situation || !val.intent || !val.thought || !val.core_meaning || (level === 1 && !val.target_ko)) {
-    throw new Error("훈련 안내문 형식이 올바르지 않습니다.");
+  try {
+    const raw = await callLLM(
+      `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
+      `영어식 사고 훈련용 안내를 만드세요. 모든 값은 한국어로만 쓰고 영어 알파벳, 패턴명, 목표 문장, 시작 표현은 절대 출력하지 마세요. 상황과 intent는 각각 한 짧은 문장으로 구체적으로 쓰세요. ${levelGuide}\n` +
+      `설명이나 코드블록 없이 유효한 JSON만 출력하세요. JSON: {"situation":"...", "intent":"...", "thought":"...", "target_ko":"...", "core_meaning":"..."}`,
+      180
+    );
+    const val = parseJson(raw);
+    if (!isValidTrainingPrompt(val, level)) throw new Error("invalid training prompt");
+    LS.cacheSet(key, val);
+    return val;
+  } catch {
+    const fallback = fallbackTrainingPrompt(level);
+    LS.cacheSet(key, fallback);
+    return fallback;
   }
-  LS.cacheSet(key, val);
-  return val;
 }
 
 function trainingPromptText(prompt, level) {
@@ -947,7 +969,7 @@ async function runSituationTaskLegacy(task) {
 async function runGuidedPatternTask(task) {
   const { p, ex, exIdx } = task;
   const level = task.trainingLevel || 1;
-  ui.main("패턴 " + p.num + ": " + p.title);
+  ui.main("패턴 " + p.num);
   ui.sub("안내를 준비 중...");
   const prompt = await step(() => getTrainingPrompt(p, exIdx, level));
   const promptText = trainingPromptText(prompt, level);
