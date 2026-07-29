@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "263-thinking-levels-v4";
+const CURRICULUM_VERSION = "263-thinking-levels-v5";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -595,8 +595,10 @@ async function getQuestion(p) {
 function isValidTrainingPrompt(val, level) {
   const text = val && Object.values(val).join(" ");
   const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
+  const vagueThought = /현재|미래|구체적|행동|표현|순서|욕구|유연|범위|설정|덧붙|전달하기/;
   return val && typeof val === "object" && val.situation && val.intent && val.thought &&
-    val.core_meaning && (level !== 1 || val.target_ko) && !/[A-Za-z]/.test(text) && !generic.test(text);
+    val.core_meaning && (level !== 1 || val.target_ko) && !/[A-Za-z]/.test(text) &&
+    !generic.test(text) && !vagueThought.test(val.thought) && val.thought.length <= 36;
 }
 
 function parseTrainingPromptText(raw, level) {
@@ -610,13 +612,13 @@ function parseTrainingPromptText(raw, level) {
 }
 
 async function getTrainingPrompt(p, exIdx, level) {
-  const key = "thinking_v4_l" + level + "_p" + p.num + "_e" + exIdx;
+  const key = "thinking_v5_l" + level + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (isValidTrainingPrompt(cached, level)) return cached;
   const ex = p.examples[exIdx];
   const levelGuide = level === 1
-    ? "사고 줄에는 관점 설명 한 문장과 화살표 정보 순서를 넣으세요. 문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
-    : "사고 줄에는 화살표 정보 순서만 넣으세요. 문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
+    ? "의도 줄은 목표 문장이 실제로 뜻하는 바를 직접 말하는 한 문장으로 쓰세요. 사고 줄은 설명 없이 ‘핵심 행동 → 대상 또는 시간’만 36자 이내로 쓰세요. 문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
+    : "의도 줄은 목표 문장이 실제로 뜻하는 바를 직접 말하는 한 문장으로 쓰세요. 사고 줄은 설명 없이 ‘핵심 행동 → 대상 또는 시간’만 36자 이내로 쓰세요. 문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
   const format = level === 1
     ? "상황: ...\n의도: ...\n사고: ...\n문장: ...\n핵심: ..."
     : "상황: ...\n의도: ...\n사고: ...\n문장:\n핵심: ...";
@@ -624,8 +626,8 @@ async function getTrainingPrompt(p, exIdx, level) {
     const raw = await callLLM(
       `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
       `이 목표 문장에만 맞는 구체적인 영어식 사고 훈련 안내를 만드세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ` +
-      `의도에는 이 문장에서 실제로 전달하려는 내용을 한국어로 구체적으로 쓰세요. 사고에는 이 문장에만 맞는 한국어 의미 요소를 화살표 순서로 넣으세요. ` +
-      `다른 문제에도 그대로 쓸 수 있는 일반적인 말(예: 원하는 내용을 공손하게 말하기, 자연스럽게 전달하기, 구체적인 내용)은 절대 쓰지 마세요. ${levelGuide}\n` +
+      `의도에는 목표 문장의 뜻을 직접 쓰세요. 예를 들어 다음 주 진료 예약이 목표라면 ‘다음 주 진료 예약을 하고 싶다고 말합니다.’처럼 씁니다. ` +
+      `사고에는 ‘예약을 잡고 싶다 → 다음 주’처럼 핵심 뜻만 쓰세요. 현재, 미래, 구체적, 행동, 표현, 순서, 욕구, 유연, 범위, 설정, 덧붙임 같은 설명 단어는 절대 쓰지 마세요. ${levelGuide}\n` +
       `정확히 다음 형식의 다섯 줄만 출력하세요.\n${format}`,
       240,
       TRAINING_PROMPT_SYSTEM
