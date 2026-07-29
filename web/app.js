@@ -366,18 +366,24 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
     };
     r.onspeechend = finishAfterSpeechEnd;
     r.onresult = e => {
-      heardAlternatives = mergeRecognitionAlternatives(e.results);
-      heard = heardAlternatives[0] || heard;
+      const currentAlternatives = mergeRecognitionAlternatives(e.results);
+      const mergedAlternatives = currentAlternatives
+        .map(candidate => mergeRecognitionSegment(heard, candidate));
+      heard = mergedAlternatives[0] || heard;
+      heardAlternatives = [...new Set([...mergedAlternatives, ...currentAlternatives])];
     };
     r.onerror = e => {
-      if (e.error === "no-speech" && !heard && restartIfWaiting()) return;
+      if (e.error === "no-speech") {
+        if (heard) finishAfterSpeechEnd();
+        if (restartIfWaiting()) return;
+      }
       finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: e.error });
     };
     r.onend = () => {
       if (done) return;
-      if (heard) return finishAfterSpeechEnd();
+      if (heard) finishAfterSpeechEnd();
       if (restartIfWaiting()) return;
-      finish({ error: "no-speech" });
+      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
     };
     ui.mic(true);
     try { r.start(); } catch { finish({ error: "start-failed" }); }
