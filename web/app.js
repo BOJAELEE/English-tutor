@@ -288,15 +288,30 @@ function mergeRecognitionResults(results, alternativeIndex = 0) {
 function mergeRecognitionAlternatives(results) {
   const alternativeCount = Array.from(results)
     .reduce((count, result) => Math.max(count, result.length), 0);
-  return Array.from({ length: alternativeCount }, (_, i) => mergeRecognitionResults(results, i))
+  const merged = Array.from({ length: alternativeCount }, (_, i) => mergeRecognitionResults(results, i));
+  const rawCandidates = Array.from(results, result => Array.from(result, alt => alt.transcript.trim())).flat();
+  return [...merged, ...rawCandidates]
     .filter((text, i, all) => text && all.indexOf(text) === i);
 }
 
 function applyRecognitionHints(recognition, hints) {
-  const Phrase = window.SpeechRecognitionPhrase;
-  if (!Phrase || !("phrases" in recognition)) return;
   const uniqueHints = [...new Set(hints.map(text => text.trim()).filter(Boolean))].slice(0, 20);
-  try { recognition.phrases = uniqueHints.map(text => new Phrase(text, 8)); } catch {}
+  const Phrase = window.SpeechRecognitionPhrase || window.webkitSpeechRecognitionPhrase;
+  if (Phrase && "phrases" in recognition) {
+    try { recognition.phrases = uniqueHints.map(text => new Phrase(text, 8)); } catch {}
+  }
+
+  const GrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+  if (GrammarList && "grammars" in recognition && uniqueHints.length) {
+    const phrases = uniqueHints.map(text => text.replace(/[^a-zA-Z0-9'\s]/g, " ")
+      .replace(/\s+/g, " ").trim()).filter(Boolean);
+    if (!phrases.length) return;
+    try {
+      const grammars = new GrammarList();
+      grammars.addFromString("#JSGF V1.0; grammar tutor; public <phrase> = " + phrases.join(" | ") + " ;", 1);
+      recognition.grammars = grammars;
+    } catch {}
+  }
 }
 
 function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
@@ -570,7 +585,14 @@ async function getQuestion(p) {
 
 /* 교정 */
 function recognitionCandidates(heard, alternatives = []) {
-  return [...new Set([heard, ...alternatives].filter(Boolean))].slice(0, 5);
+  return [...new Set([heard, ...alternatives].filter(Boolean))].slice(0, 12);
+}
+
+function sanitizeFeedback(feedback) {
+  const cleaned = String(feedback || "")
+    .replace(/(?:음성\s*인식|인식\s*결과|발음\s*인식|잘\s*안\s*들렸|잘\s*못\s*들었)[^.?!\n]*[.?!]?/gi, "")
+    .trim();
+  return cleaned || "목표 패턴을 넣어 한 문장으로 말해보세요.";
 }
 
 async function checkPattern(p, targetEn, heard, alternatives) {
@@ -578,7 +600,7 @@ async function checkPattern(p, targetEn, heard, alternatives) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n목표 영어 문장: "${targetEn}"\n` +
     `음성인식 첫 결과: "${heard}"\n음성인식 후보: ${candidates}\n` +
-    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. 차 안 소음 때문에 인식이 틀릴 수 있으므로 후보를 함께 비교하되, 의미 없는 단어 조각만으로 정답 처리하지는 마세요.\n` +
+    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. 후보 중 하나가 조건을 충족하면 correct는 true입니다. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "가장 자연스러운 영어 문장"}`
   );
   return parseJson(raw);
@@ -589,7 +611,7 @@ async function checkAnswer(p, question, heard, alternatives) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n질문: "${question}"\n` +
     `음성인식 첫 결과: "${heard}"\n음성인식 후보: ${candidates}\n` +
-    `판정 기준: 모범 답안과 정확히 같은 문장을 요구하지 마세요. 학습자가 이 패턴(자연스러운 축약·시제 변화 포함)을 사용하고 질문에 맞는 뜻을 전달했다면 correct는 true입니다. 차 안 소음으로 인식이 불완전할 수 있으므로 후보를 함께 비교하되, 의미 없는 단어 조각만으로 정답 처리하지는 마세요.\n` +
+    `판정 기준: 모범 답안과 정확히 같은 문장을 요구하지 마세요. 학습자가 이 패턴(자연스러운 축약·시제 변화 포함)을 사용하고 질문에 맞는 뜻을 전달했다면 correct는 true입니다. 후보 중 하나가 조건을 충족하면 correct는 true입니다. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "이 패턴을 사용한 자연스러운 모범 답변 한 문장"}`
   );
   return parseJson(raw);
@@ -782,12 +804,12 @@ async function listenWithRetry(hints = []) {
     const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, hints));
     if (r.text) return r;
     if (r.error === "unsupported") {
-      await step(() => speak("이 브라우저는 음성인식을 지원하지 않습니다. 크롬을 사용해주세요.", "ko-KR"));
+      await step(() => speak("이 브라우저에서는 학습을 계속할 수 없습니다. 크롬으로 열어주세요.", "ko-KR"));
       throw { quit: true };
     }
     if (i < 2) {
-      ui.sub("(잘 안 들렸어요. 다시 말해주세요)");
-      await step(() => speak("잘 못 들었어요. 다시 말해주세요.", "ko-KR"));
+      ui.sub("(한 번 더 말해보세요)");
+      await step(() => speak("한 번 더 말해보세요.", "ko-KR"));
     }
   }
   return null;
@@ -803,8 +825,8 @@ async function listenWithConversationRetry(hints = []) {
       throw { quit: true };
     }
     if (i < 2) {
-      ui.sub("I didn't catch that. Please try again.");
-      await step(() => speak("I didn't catch that. Please try again.", "en-US"));
+      ui.sub("Please say it once more.");
+      await step(() => speak("Please say it once more.", "en-US"));
     }
   }
   return null;
@@ -842,7 +864,7 @@ async function runPatternTask(task) {
     ui.sub("들린 내용: " + heard);
     ui.main("확인 중...");
     const result = await step(() => checkPattern(p, ex, heard, recognition.alternatives));
-    feedbackKo = result.feedback_ko;
+    feedbackKo = sanitizeFeedback(result.feedback_ko);
     modelEn = result.model_en || ex;
   }
   ui.main(feedbackKo);
@@ -873,7 +895,7 @@ async function runSituationTask(task) {
     ui.sub("들린 내용: " + heard);
     ui.main("확인 중...");
     const result = await step(() => checkAnswer(p, q.question_en, heard, recognition.alternatives));
-    feedbackKo = result.feedback_ko;
+    feedbackKo = sanitizeFeedback(result.feedback_ko);
     modelEn = result.model_en || p.examples[0];
   }
   ui.main(feedbackKo);
