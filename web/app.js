@@ -804,6 +804,28 @@ const ui = {
     }
     el.append(document.createTextNode(t.slice(lastIndex)));
   },
+  trainingPrompt(prompt, level) {
+    const el = $("status-main");
+    const items = [
+      ["상황", prompt.situation, "training-situation"],
+      ["의도", prompt.intent, "training-intent"],
+      ["영어식 사고", prompt.thought, "training-thought"],
+      [level === 1 ? "말할 문장" : "핵심 의미", level === 1 ? prompt.target_ko : prompt.core_meaning, "training-target"],
+    ];
+    el.textContent = "";
+    for (const [label, value, className] of items) {
+      const line = document.createElement("div");
+      line.className = "training-line " + className;
+      const heading = document.createElement("span");
+      heading.className = "training-label";
+      heading.textContent = label;
+      const content = document.createElement("span");
+      content.className = "training-value";
+      content.textContent = value;
+      line.append(heading, content);
+      el.append(line);
+    }
+  },
   sub(t) { $("status-sub").textContent = t; },
   mic(on) { $("mic-indicator").classList.toggle("hidden", !on); },
   header(day, session, done, total) {
@@ -978,7 +1000,7 @@ async function runGuidedPatternTask(task) {
   ui.sub("안내를 준비 중...");
   const prompt = await step(() => getTrainingPrompt(p, exIdx, level));
   const promptText = trainingPromptText(prompt, level);
-  ui.mainWithHighlightedQuote(promptText);
+  ui.trainingPrompt(prompt, level);
   ui.sub("");
   await step(() => speak(promptText, "ko-KR"));
   if (state.skip || state.back) return;

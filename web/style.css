@@ -69,6 +69,14 @@ h1 { font-size: 24px; }
 }
 #status-main { font-size: 30px; line-height: 1.5; font-weight: bold; }
 .target-phrase { color: #6ee7a0 !important; text-decoration: none !important; }
+.training-line { margin: 0 0 22px; }
+.training-line:last-child { margin-bottom: 0; }
+.training-label { display: block; margin-bottom: 4px; font-size: 0.62em; font-weight: 700; }
+.training-value { display: block; }
+.training-situation .training-label { color: #8eb8ff; }
+.training-intent .training-label { color: #f4b56a; }
+.training-thought .training-label { color: #c9a8ff; }
+.training-target .training-label, .training-target .training-value { color: #6ee7a0; }
 #status-sub { font-size: 22px; line-height: 1.5; color: #6ee7a0; font-weight: 600; min-height: 34px; }
 .conversation-review { max-height: 42vh; overflow-y: auto; text-align: left; }
 .conversation-review-title { font-size: 18px; font-weight: bold; margin-bottom: 12px; }
