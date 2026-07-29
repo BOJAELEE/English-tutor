@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "284-patterns-2-per-day-v2";
+const CURRICULUM_VERSION = "263-patterns-prefixes-removed-v1";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -238,17 +238,57 @@ async function speak(text, lang) {
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-function recognitionText(results, alternativeIndex = 0) {
-  return Array.from(results, result => (result[alternativeIndex] || result[0]).transcript.trim())
-    .filter(Boolean).join(" ");
+function transcriptWords(text) {
+  return text.trim().split(/\s+/).filter(Boolean);
 }
 
-function recognitionAlternatives(results) {
+function comparableWord(word) {
+  return word.toLowerCase().replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
+}
+
+function sameTranscriptWords(a, b) {
+  return comparableWord(a) === comparableWord(b);
+}
+
+function mergeRecognitionSegment(previous, next) {
+  const previousWords = transcriptWords(previous);
+  const nextWords = transcriptWords(next);
+  if (!previousWords.length) return nextWords.join(" ");
+  if (!nextWords.length) return previousWords.join(" ");
+
+  const previousIsPrefix = previousWords.length <= nextWords.length
+    && previousWords.every((word, i) => sameTranscriptWords(word, nextWords[i]));
+  if (previousIsPrefix) return nextWords.join(" ");
+
+  const nextIsPrefix = nextWords.length <= previousWords.length
+    && nextWords.every((word, i) => sameTranscriptWords(word, previousWords[i]));
+  if (nextIsPrefix) return previousWords.join(" ");
+
+  let sharedPrefixLength = 0;
+  const maxSharedPrefix = Math.min(previousWords.length, nextWords.length);
+  while (sharedPrefixLength < maxSharedPrefix
+    && sameTranscriptWords(previousWords[sharedPrefixLength], nextWords[sharedPrefixLength])) {
+    sharedPrefixLength++;
+  }
+  if (sharedPrefixLength >= 2 && sharedPrefixLength * 2 >= Math.min(previousWords.length, nextWords.length)) {
+    return nextWords.join(" ");
+  }
+
+  let overlap = Math.min(previousWords.length, nextWords.length);
+  while (overlap > 0 && !previousWords.slice(-overlap)
+    .every((word, i) => sameTranscriptWords(word, nextWords[i]))) overlap--;
+  return previousWords.concat(nextWords.slice(overlap)).join(" ");
+}
+
+function mergeRecognitionResults(results, alternativeIndex = 0) {
+  return Array.from(results, result => (result[alternativeIndex] || result[0]).transcript)
+    .reduce((transcript, segment) => mergeRecognitionSegment(transcript, segment), "");
+}
+
+function mergeRecognitionAlternatives(results) {
   const alternativeCount = Array.from(results)
     .reduce((count, result) => Math.max(count, result.length), 0);
-  const fullSentences = Array.from({ length: alternativeCount }, (_, i) => recognitionText(results, i));
-  const individualSegments = Array.from(results, result => result[0].transcript.trim());
-  return [...fullSentences, ...individualSegments]
+  return Array.from({ length: alternativeCount }, (_, i) => mergeRecognitionResults(results, i))
     .filter((text, i, all) => text && all.indexOf(text) === i);
 }
 
@@ -271,27 +311,8 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
     let done = false;
     let heard = "";
     let heardAlternatives = [];
-    let committedText = "";
-    let committedAlternatives = [];
     let speechEndTimer = null;
     let restartTimer = null;
-    const heardResult = () => {
-      const text = [committedText, heard].filter(Boolean).join(" ");
-      const alternatives = [
-        text,
-        ...heardAlternatives.map(candidate => [committedText, candidate].filter(Boolean).join(" ")),
-        ...committedAlternatives,
-        ...heardAlternatives,
-      ].filter((candidate, i, all) => candidate && all.indexOf(candidate) === i);
-      return { text, alternatives };
-    };
-    const commitCurrentResult = () => {
-      if (!heard) return;
-      committedText = [committedText, heard].filter(Boolean).join(" ");
-      committedAlternatives = [...new Set([...committedAlternatives, ...heardAlternatives])];
-      heard = "";
-      heardAlternatives = [];
-    };
     const finish = res => {
       if (!done) {
         done = true;
@@ -308,7 +329,7 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
       restartTimer = setTimeout(() => {
         try { r.start(); }
         catch (e) {
-          if (e.name !== "InvalidStateError") finish((heard || committedText) ? heardResult() : { error: "start-failed" });
+          if (e.name !== "InvalidStateError") finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "start-failed" });
         }
       }, 100);
       return true;
@@ -317,12 +338,12 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
       if (done) return;
       clearTimeout(speechEndTimer);
       speechEndTimer = setTimeout(() => {
-        finish((heard || committedText) ? heardResult() : { error: "no-speech" });
+        finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
         try { r.stop(); } catch {}
       }, ANSWER_SPEECH_PAUSE_MS);
     };
     const timer = setTimeout(() => {
-      finish((heard || committedText) ? heardResult() : { error: "timeout" });
+      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "timeout" });
       try { r.stop(); } catch {}
     }, timeoutMs || 12000);
     r.onspeechstart = () => {
@@ -330,21 +351,18 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
     };
     r.onspeechend = finishAfterSpeechEnd;
     r.onresult = e => {
-      heardAlternatives = recognitionAlternatives(e.results);
+      heardAlternatives = mergeRecognitionAlternatives(e.results);
       heard = heardAlternatives[0] || heard;
     };
     r.onerror = e => {
-      if (e.error === "no-speech" && restartIfWaiting()) return;
-      finish((heard || committedText) ? heardResult() : { error: e.error });
+      if (e.error === "no-speech" && !heard && restartIfWaiting()) return;
+      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: e.error });
     };
     r.onend = () => {
       if (done) return;
-      if (heard) {
-        finishAfterSpeechEnd();
-        commitCurrentResult();
-      }
+      if (heard) return finishAfterSpeechEnd();
       if (restartIfWaiting()) return;
-      finish(committedText ? heardResult() : { error: "no-speech" });
+      finish({ error: "no-speech" });
     };
     ui.mic(true);
     try { r.start(); } catch { finish({ error: "start-failed" }); }

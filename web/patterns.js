@@ -1,4 +1,4 @@
-const PATTERNS = [
+const RAW_PATTERNS = [
     {
         "num": 1,
         "title": "I can't say for sure, but + 문장.",
@@ -2556,3 +2556,12 @@ const PATTERNS = [
         ]
     }
 ];
+
+const REMOVED_SIMPLE_PREFIX_PATTERN_NUMBERS = new Set([
+    1, 2, 3, 5, 6, 7, 35, 103, 105, 107, 109,
+    111, 113, 114, 115, 117, 118, 119, 120, 121, 122,
+]);
+
+const PATTERNS = RAW_PATTERNS
+    .filter(pattern => !REMOVED_SIMPLE_PREFIX_PATTERN_NUMBERS.has(pattern.num))
+    .map((pattern, index) => ({ ...pattern, num: index + 1 }));
