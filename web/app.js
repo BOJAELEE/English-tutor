@@ -1025,10 +1025,11 @@ async function runGuidedPatternTask(task) {
   await step(() => speak(modelEn, "en-US"));
   if (state.skip || state.back || level !== 1) return;
 
-  ui.main("핵심 의미:\n" + prompt.core_meaning);
-  ui.sub("이 의미만 보고 한 번 더 말해보세요.");
-  await step(() => speak("핵심 의미입니다. " + prompt.core_meaning + " 한 번 더 말해보세요.", "ko-KR"));
-  await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [p.title, ...p.examples]));
+  ui.main("따라 말해보세요.\n\n" + modelEn);
+  ui.sub("");
+  await step(() => speak("이 문장을 따라 말해보세요.", "ko-KR"));
+  await step(() => speak(modelEn, "en-US"));
+  await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [modelEn]));
 }
 
 async function runPatternTask(task) {
