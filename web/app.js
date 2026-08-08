@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "263-thinking-levels-v6";
+const CURRICULUM_VERSION = "263-thinking-levels-v7";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -592,34 +592,34 @@ async function getQuestion(p) {
 }
 
 /* 영어식 사고 훈련 안내문 (캐시됨) */
-function isValidTrainingPrompt(val, level) {
+function isValidTrainingPrompt(val, showTarget) {
   const text = val && Object.values(val).join(" ");
   const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
   const vagueThought = /현재|미래|구체적|행동|표현|순서|욕구|유연|범위|설정|덧붙|전달하기/;
   return val && typeof val === "object" && val.situation && val.thought &&
-    val.core_meaning && (level !== 1 || val.target_ko) && !/[A-Za-z]/.test(text) &&
+    val.core_meaning && (!showTarget || val.target_ko) && !/[A-Za-z]/.test(text) &&
     !generic.test(text) && !vagueThought.test(val.thought) && val.thought.length <= 36;
 }
 
-function parseTrainingPromptText(raw, level) {
+function parseTrainingPromptText(raw, showTarget) {
   const labels = { 상황: "situation", 사고: "thought", 문장: "target_ko", 핵심: "core_meaning" };
   const val = { target_ko: "" };
   for (const line of String(raw).replace(/\*\*/g, "").split(/\r?\n/)) {
     const match = line.trim().match(/^(상황|사고|문장|핵심)\s*[:：]\s*(.+)$/);
     if (match) val[labels[match[1]]] = match[2].trim();
   }
-  return isValidTrainingPrompt(val, level) ? val : null;
+  return isValidTrainingPrompt(val, showTarget) ? val : null;
 }
 
-async function getTrainingPrompt(p, exIdx, level) {
-  const key = "thinking_v6_l" + level + "_p" + p.num + "_e" + exIdx;
+async function getTrainingPrompt(p, exIdx, showTarget) {
+  const key = "thinking_v7_t" + (showTarget ? "1" : "0") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
-  if (isValidTrainingPrompt(cached, level)) return cached;
+  if (isValidTrainingPrompt(cached, showTarget)) return cached;
   const ex = p.examples[exIdx];
-  const levelGuide = level === 1
+  const levelGuide = showTarget
     ? "사고 줄은 설명 없이 ‘핵심 행동 → 대상 또는 시간’만 36자 이내로 쓰세요. 문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
     : "사고 줄은 설명 없이 ‘핵심 행동 → 대상 또는 시간’만 36자 이내로 쓰세요. 문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
-  const format = level === 1
+  const format = showTarget
     ? "상황: ...\n문장: ...\n사고: ...\n핵심: ..."
     : "상황: ...\n문장:\n사고: ...\n핵심: ...";
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -631,7 +631,7 @@ async function getTrainingPrompt(p, exIdx, level) {
       240,
       TRAINING_PROMPT_SYSTEM
     );
-    const val = parseTrainingPromptText(raw, level);
+    const val = parseTrainingPromptText(raw, showTarget);
     if (val) {
       LS.cacheSet(key, val);
       return val;
@@ -640,10 +640,10 @@ async function getTrainingPrompt(p, exIdx, level) {
   throw new Error("훈련 안내문을 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
 }
 
-function trainingPromptText(prompt, level) {
+function trainingPromptText(prompt, showTarget) {
   const lines = [
     "상황: " + prompt.situation,
-    level === 1 ? "말할 문장: '" + prompt.target_ko + "'" : "핵심 의미: " + prompt.core_meaning,
+    showTarget ? "말할 문장: '" + prompt.target_ko + "'" : "핵심 의미: " + prompt.core_meaning,
     "영어식 사고: " + prompt.thought,
   ];
   return lines.join("\n\n");
@@ -803,11 +803,11 @@ const ui = {
     }
     el.append(document.createTextNode(t.slice(lastIndex)));
   },
-  trainingPrompt(prompt, level) {
+  trainingPrompt(prompt, showTarget) {
     const el = $("status-main");
     const items = [
       ["상황", prompt.situation, "training-situation"],
-      [level === 1 ? "말할 문장" : "핵심 의미", level === 1 ? prompt.target_ko : prompt.core_meaning, "training-target"],
+      [showTarget ? "말할 문장" : "핵심 의미", showTarget ? prompt.target_ko : prompt.core_meaning, "training-target"],
       ["영어식 사고", prompt.thought, "training-thought"],
     ];
     el.textContent = "";
@@ -994,11 +994,12 @@ async function runSituationTaskLegacy(task) {
 async function runGuidedPatternTask(task) {
   const { p, ex, exIdx } = task;
   const level = task.trainingLevel || 1;
+  const showTarget = task.showTarget !== false;
   ui.main("패턴 " + p.num);
   ui.sub("안내를 준비 중...");
-  const prompt = await step(() => getTrainingPrompt(p, exIdx, level));
-  const promptText = trainingPromptText(prompt, level);
-  ui.trainingPrompt(prompt, level);
+  const prompt = await step(() => getTrainingPrompt(p, exIdx, showTarget));
+  const promptText = trainingPromptText(prompt, showTarget);
+  ui.trainingPrompt(prompt, showTarget);
   ui.sub("");
   await step(() => speak(promptText, "ko-KR"));
   if (state.skip || state.back) return;
