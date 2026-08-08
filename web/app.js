@@ -782,6 +782,7 @@ async function enablePush() {
 
 /* ==================== UI ==================== */
 const $ = id => document.getElementById(id);
+$("app-version").textContent = self.APP_VERSION;
 const ui = {
   show(name) {
     ["home", "practice", "settings"].forEach(s => $("screen-" + s).classList.toggle("hidden", s !== name));

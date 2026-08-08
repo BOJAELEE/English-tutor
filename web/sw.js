@@ -1,7 +1,8 @@
-const CACHE = "et-v19";
+importScripts("version.js");
+const CACHE = "et-" + self.APP_VERSION;
 const ASSETS = [
   "./", "index.html", "style.css", "app.js", "patterns.js", "day-tasks.js",
-  "push-config.js", "manifest.json", "icon-192.png", "icon-512.png",
+  "push-config.js", "version.js", "manifest.json", "icon-192.png", "icon-512.png",
 ];
 
 self.addEventListener("install", e => {
