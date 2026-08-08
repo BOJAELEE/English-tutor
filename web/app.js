@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "263-thinking-levels-v7";
+const CURRICULUM_VERSION = "250-master-patterns-v1";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
