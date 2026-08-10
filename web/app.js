@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "250-master-patterns-v1";
+const CURRICULUM_VERSION = "250-master-patterns-v2";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -658,7 +658,9 @@ function sanitizeFeedback(feedback) {
   const cleaned = String(feedback || "")
     .replace(/(?:음성\s*인식|인식\s*결과|발음\s*인식|잘\s*안\s*들렸|잘\s*못\s*들었)[^.?!\n]*[.?!]?/gi, "")
     .trim();
-  return cleaned || "목표 패턴을 넣어 한 문장으로 말해보세요.";
+  const firstSentence = cleaned.split(/[.?!\n]/)[0].trim();
+  if (!firstSentence) return "최종 문장을 확인하세요.";
+  return firstSentence.length > 32 ? firstSentence.slice(0, 32).trim() + "…" : firstSentence;
 }
 
 async function checkPattern(p, targetEn, heard, alternatives) {
@@ -666,8 +668,8 @@ async function checkPattern(p, targetEn, heard, alternatives) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n목표 영어 문장: "${targetEn}"\n` +
     `음성인식 첫 결과: "${heard}"\n음성인식 후보: ${candidates}\n` +
-    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. 후보 중 하나가 조건을 충족하면 correct는 true입니다. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
-    `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "가장 자연스러운 영어 문장"}`
+    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. 후보 중 하나가 조건을 충족하면 correct는 true입니다. feedback_ko에는 핵심 오류 하나만 18자 안팎의 짧은 한 문장으로 쓰세요. 칭찬, 긴 설명, 음성 인식·발음·재시도 안내는 절대 쓰지 마세요.\n` +
+    `JSON: {"correct": true 또는 false, "feedback_ko": "핵심 오류 한 가지를 말하는 짧은 한국어 문장", "model_en": "가장 자연스러운 영어 문장"}`
   );
   return parseJson(raw);
 }
@@ -923,11 +925,8 @@ async function listenWithConversationRetry(hints = []) {
 async function shadow(modelEn) {
   ui.main(modelEn);
   ui.sub("따라 말해보세요 (쉐도잉)");
-  await step(() => speak("따라 해보세요.", "ko-KR"));
-  await step(() => speak(modelEn, "en-US"));
   const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [modelEn]));
   if (r.text) ui.sub("들린 내용: " + r.text);
-  await step(() => speak("좋아요.", "ko-KR"));
 }
 
 async function runPatternTaskLegacy(task) {
@@ -1010,7 +1009,7 @@ async function runGuidedPatternTask(task) {
 
   let feedbackKo, modelEn;
   if (recognition === null) {
-    feedbackKo = "괜찮아요. 자연스러운 문장을 확인해보세요.";
+    feedbackKo = "최종 문장입니다.";
     modelEn = ex;
   } else {
     const heard = recognition.text;
@@ -1021,7 +1020,7 @@ async function runGuidedPatternTask(task) {
     modelEn = result.model_en || ex;
   }
 
-  ui.main(feedbackKo + "\n\n자연스러운 문장:\n" + modelEn);
+  ui.main(feedbackKo + "\n\n최종 문장:\n" + modelEn);
   ui.sub("");
   await step(() => speak(feedbackKo, "ko-KR"));
   await step(() => speak(modelEn, "en-US"));
@@ -1029,8 +1028,6 @@ async function runGuidedPatternTask(task) {
 
   ui.main("따라 말해보세요.\n\n" + modelEn);
   ui.sub("");
-  await step(() => speak("이 문장을 따라 말해보세요.", "ko-KR"));
-  await step(() => speak(modelEn, "en-US"));
   await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [modelEn]));
 }
 
