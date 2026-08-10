@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "250-master-patterns-v2";
+const CURRICULUM_VERSION = "250-master-patterns-v3";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -394,7 +394,7 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
 const SYSTEM_PROMPT =
   "당신은 한국인을 위한 영어회화 튜터입니다. 반드시 요청된 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.";
 const TRAINING_PROMPT_SYSTEM =
-  "당신은 한국인을 위한 영어식 사고 훈련 안내 작성자입니다. 요청한 네 줄만 한국어로 출력하세요. 영어 알파벳, 영어 단어, 패턴명, 정답 문장은 절대 출력하지 마세요.";
+  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 요청한 세 줄만 한국어로 출력하세요. 영어 알파벳, 영어 단어, 패턴명, 정답 문장은 절대 출력하지 마세요.";
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
@@ -591,43 +591,41 @@ async function getQuestion(p) {
   return val;
 }
 
-/* 영어식 사고 훈련 안내문 (캐시됨) */
+/* 훈련 안내문 (캐시됨) */
 function isValidTrainingPrompt(val, showTarget) {
   const text = val && Object.values(val).join(" ");
   const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
-  const vagueThought = /현재|미래|구체적|행동|표현|순서|욕구|유연|범위|설정|덧붙|전달하기/;
-  return val && typeof val === "object" && val.situation && val.thought &&
+  return val && typeof val === "object" && val.situation &&
     val.core_meaning && (!showTarget || val.target_ko) && !/[A-Za-z]/.test(text) &&
-    !generic.test(text) && !vagueThought.test(val.thought) && val.thought.length <= 36;
+    !generic.test(text);
 }
 
 function parseTrainingPromptText(raw, showTarget) {
-  const labels = { 상황: "situation", 사고: "thought", 문장: "target_ko", 핵심: "core_meaning" };
+  const labels = { 상황: "situation", 문장: "target_ko", 핵심: "core_meaning" };
   const val = { target_ko: "" };
   for (const line of String(raw).replace(/\*\*/g, "").split(/\r?\n/)) {
-    const match = line.trim().match(/^(상황|사고|문장|핵심)\s*[:：]\s*(.+)$/);
+    const match = line.trim().match(/^(상황|문장|핵심)\s*[:：]\s*(.+)$/);
     if (match) val[labels[match[1]]] = match[2].trim();
   }
   return isValidTrainingPrompt(val, showTarget) ? val : null;
 }
 
 async function getTrainingPrompt(p, exIdx, showTarget) {
-  const key = "thinking_v7_t" + (showTarget ? "1" : "0") + "_p" + p.num + "_e" + exIdx;
+  const key = "training_v8_t" + (showTarget ? "1" : "0") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (isValidTrainingPrompt(cached, showTarget)) return cached;
   const ex = p.examples[exIdx];
   const levelGuide = showTarget
-    ? "사고 줄은 설명 없이 ‘핵심 행동 → 대상 또는 시간’만 36자 이내로 쓰세요. 문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
-    : "사고 줄은 설명 없이 ‘핵심 행동 → 대상 또는 시간’만 36자 이내로 쓰세요. 문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
+    ? "문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
+    : "문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
   const format = showTarget
-    ? "상황: ...\n문장: ...\n사고: ...\n핵심: ..."
-    : "상황: ...\n문장:\n사고: ...\n핵심: ...";
+    ? "상황: ...\n문장: ...\n핵심: ..."
+    : "상황: ...\n문장:\n핵심: ...";
   for (let attempt = 0; attempt < 3; attempt++) {
     const raw = await callLLM(
       `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-      `이 목표 문장에만 맞는 구체적인 영어식 사고 훈련 안내를 만드세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ` +
-      `사고에는 ‘예약을 잡고 싶다 → 다음 주’처럼 핵심 뜻만 쓰세요. 현재, 미래, 구체적, 행동, 표현, 순서, 욕구, 유연, 범위, 설정, 덧붙임 같은 설명 단어는 절대 쓰지 마세요. ${levelGuide}\n` +
-      `정확히 다음 형식의 네 줄만 출력하세요.\n${format}`,
+      `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ${levelGuide}\n` +
+      `정확히 다음 형식의 세 줄만 출력하세요.\n${format}`,
       240,
       TRAINING_PROMPT_SYSTEM
     );
@@ -644,7 +642,6 @@ function trainingPromptText(prompt, showTarget) {
   const lines = [
     "상황: " + prompt.situation,
     showTarget ? "말할 문장: '" + prompt.target_ko + "'" : "핵심 의미: " + prompt.core_meaning,
-    "영어식 사고: " + prompt.thought,
   ];
   return lines.join("\n\n");
 }
@@ -811,7 +808,6 @@ const ui = {
     const items = [
       ["상황", prompt.situation, "training-situation"],
       [showTarget ? "말할 문장" : "핵심 의미", showTarget ? prompt.target_ko : prompt.core_meaning, "training-target"],
-      ["영어식 사고", prompt.thought, "training-thought"],
     ];
     el.textContent = "";
     for (const [label, value, className] of items) {
