@@ -17,22 +17,30 @@ function getReviewPicks(day, pool) {
   try { cachedNums = JSON.parse(localStorage.getItem(key)); } catch {}
   if (Array.isArray(cachedNums)) {
     const found = cachedNums.map(n => pool.find(p => p.num === n)).filter(Boolean);
-    if (found.length === cachedNums.length && found.length > 0) return found;
+    if (found.length === 2 && isPhrasalPattern(found[0]) !== isPhrasalPattern(found[1])) return found;
   }
-  const picks = [];
-  const used = new Set();
-  while (picks.length < Math.min(2, pool.length)) {
-    const i = Math.floor(Math.random() * pool.length);
-    if (!used.has(i)) { used.add(i); picks.push(pool[i]); }
-  }
+  const phrasal = pool.filter(isPhrasalPattern);
+  const regular = pool.filter(p => !isPhrasalPattern(p));
+  const pick = patterns => patterns[Math.floor(Math.random() * patterns.length)];
+  const picks = phrasal.length && regular.length
+    ? [pick(phrasal), pick(regular)]
+    : pool.slice(0, Math.min(2, pool.length));
   localStorage.setItem(key, JSON.stringify(picks.map(p => p.num)));
   return picks;
+}
+
+function isPhrasalPattern(p) {
+  const englishTitle = p.title.split("(")[0];
+  return /\b(?:away|back|by|down|in|into|off|on|out|over|through|together|up|with)\b/i.test(englishTitle);
 }
 
 function buildSessions(day) {
   const today = dayPatterns(day);
   const patternTasks = (patterns, trainingLevel, showTarget) => patterns.flatMap(p =>
     p.examples.map((ex, exIdx) => ({ kind: "pattern", p, ex, exIdx, trainingLevel, showTarget }))
+  );
+  const oneExampleTasks = (patterns, trainingLevel, showTarget) => patterns.map(p =>
+    ({ kind: "pattern", p, ex: p.examples[0], exIdx: 0, trainingLevel, showTarget })
   );
   const s1 = patternTasks(today, 1, true);
   const s2 = today.map(p => ({ kind: "situation", p, trainingLevel: 2, showTarget: true }));
@@ -42,10 +50,10 @@ function buildSessions(day) {
   ];
   if (day > 1) {
     const prev = dayPatterns(day - 1);
-    sessions.push({ name: "세션3 어제 복습", tasks: patternTasks(prev, 2, true) });
+    sessions.push({ name: "세션3 어제 복습", tasks: oneExampleTasks(prev, 2, true) });
     const pool = PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
     const picks = getReviewPicks(day, pool);
-    sessions.push({ name: "세션4 전체 복습", tasks: patternTasks(picks, 2, false) });
+    sessions.push({ name: "세션4 전체 복습", tasks: oneExampleTasks(picks, 2, true) });
   }
   sessions.push({ name: "마무리 일상 회화", tasks: [{ kind: "conversation", patterns: today }] });
   return sessions;

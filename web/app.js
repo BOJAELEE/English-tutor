@@ -368,7 +368,7 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
 const SYSTEM_PROMPT =
   "당신은 한국인을 위한 영어회화 튜터입니다. 반드시 요청된 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.";
 const TRAINING_PROMPT_SYSTEM =
-  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 요청한 세 줄만 한국어로 출력하세요. 영어 알파벳, 영어 단어, 패턴명, 정답 문장은 절대 출력하지 마세요.";
+  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 요청한 네 줄만 출력하세요. 원문 줄에만 주어진 영어 문장을 그대로 쓰고, 나머지 세 줄은 한국어로 쓰세요.";
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
@@ -566,45 +566,45 @@ async function getQuestion(p) {
 }
 
 /* 훈련 안내문 (캐시됨) */
-function isValidTrainingPrompt(val, showTarget) {
-  const text = val && Object.values(val).join(" ");
+function isValidTrainingPrompt(val, showTarget, targetEn = "") {
+  const text = val && [val.situation, val.target_ko, val.core_meaning].join(" ");
   const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
-  return val && typeof val === "object" && val.situation &&
+  return val && typeof val === "object" && val.situation && val.target_en &&
     val.core_meaning && (!showTarget || val.target_ko) && !/[A-Za-z]/.test(text) &&
-    !generic.test(text);
+    !generic.test(text) && (!targetEn || val.target_en === targetEn);
 }
 
 function parseTrainingPromptText(raw, showTarget) {
-  const labels = { 상황: "situation", 문장: "target_ko", 핵심: "core_meaning" };
+  const labels = { 원문: "target_en", 상황: "situation", 문장: "target_ko", 핵심: "core_meaning" };
   const val = { target_ko: "" };
   for (const line of String(raw).replace(/\*\*/g, "").split(/\r?\n/)) {
-    const match = line.trim().match(/^(상황|문장|핵심)\s*[:：]\s*(.+)$/);
+    const match = line.trim().match(/^(원문|상황|문장|핵심)\s*[:：]\s*(.+)$/);
     if (match) val[labels[match[1]]] = match[2].trim();
   }
   return isValidTrainingPrompt(val, showTarget) ? val : null;
 }
 
 async function getTrainingPrompt(p, exIdx, showTarget) {
-  const key = "training_v8_t" + (showTarget ? "1" : "0") + "_p" + p.num + "_e" + exIdx;
+  const key = "training_v9_t" + (showTarget ? "1" : "0") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
-  if (isValidTrainingPrompt(cached, showTarget)) return cached;
+  if (isValidTrainingPrompt(cached, showTarget, p.examples[exIdx])) return cached;
   const ex = p.examples[exIdx];
   const levelGuide = showTarget
     ? "문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
     : "문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
   const format = showTarget
-    ? "상황: ...\n문장: ...\n핵심: ..."
-    : "상황: ...\n문장:\n핵심: ...";
+    ? "원문: ...\n상황: ...\n문장: ...\n핵심: ..."
+    : "원문: ...\n상황: ...\n문장:\n핵심: ...";
   for (let attempt = 0; attempt < 3; attempt++) {
     const raw = await callLLM(
       `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-      `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ${levelGuide}\n` +
-      `정확히 다음 형식의 세 줄만 출력하세요.\n${format}`,
+      `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. 원문 줄에는 목표 영어 문장을 글자까지 똑같이 복사하세요. 문장 줄은 그 원문만 정확히 한국어로 번역하세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ${levelGuide}\n` +
+      `정확히 다음 형식의 네 줄만 출력하세요.\n${format}`,
       240,
       TRAINING_PROMPT_SYSTEM
     );
     const val = parseTrainingPromptText(raw, showTarget);
-    if (val) {
+    if (isValidTrainingPrompt(val, showTarget, ex)) {
       LS.cacheSet(key, val);
       return val;
     }
