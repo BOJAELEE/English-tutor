@@ -239,154 +239,128 @@ async function speak(text, lang) {
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 function transcriptWords(text) {
-  return text.trim().split(/\s+/).filter(Boolean);
+  return String(text).toLowerCase().match(/[a-z0-9']+/g) || [];
 }
 
-function comparableWord(word) {
-  return word.toLowerCase().replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, "");
+function buildRecognitionCandidates(finalSegments) {
+  const count = Math.max(0, ...finalSegments.map(segment => segment.length));
+  const candidates = Array.from({ length: count }, (_, index) => {
+    const choices = finalSegments.map(segment => segment[index] || segment[0]);
+    return {
+      text: choices.map(choice => choice.text).join(" ").trim(),
+      confidence: choices.reduce((sum, choice) => sum + (Number(choice.confidence) || 0), 0) / choices.length,
+    };
+  });
+  return candidates.filter((candidate, index, all) => candidate.text
+    && all.findIndex(other => other.text === candidate.text) === index);
 }
 
-function sameTranscriptWords(a, b) {
-  return comparableWord(a) === comparableWord(b);
+function hintSimilarity(text, hints) {
+  const words = transcriptWords(text);
+  if (!words.length) return 0;
+  return hints.reduce((best, hint) => {
+    const hintWords = new Set(transcriptWords(hint));
+    const matches = words.filter(word => hintWords.has(word)).length;
+    return Math.max(best, matches / words.length);
+  }, 0);
 }
 
-function mergeRecognitionSegment(previous, next) {
-  const previousWords = transcriptWords(previous);
-  const nextWords = transcriptWords(next);
-  if (!previousWords.length) return nextWords.join(" ");
-  if (!nextWords.length) return previousWords.join(" ");
-
-  const previousIsPrefix = previousWords.length <= nextWords.length
-    && previousWords.every((word, i) => sameTranscriptWords(word, nextWords[i]));
-  if (previousIsPrefix) return nextWords.join(" ");
-
-  const nextIsPrefix = nextWords.length <= previousWords.length
-    && nextWords.every((word, i) => sameTranscriptWords(word, previousWords[i]));
-  if (nextIsPrefix) return previousWords.join(" ");
-
-  let sharedPrefixLength = 0;
-  const maxSharedPrefix = Math.min(previousWords.length, nextWords.length);
-  while (sharedPrefixLength < maxSharedPrefix
-    && sameTranscriptWords(previousWords[sharedPrefixLength], nextWords[sharedPrefixLength])) {
-    sharedPrefixLength++;
-  }
-  if (sharedPrefixLength >= 2 && sharedPrefixLength * 2 >= Math.min(previousWords.length, nextWords.length)) {
-    return nextWords.join(" ");
-  }
-
-  let overlap = Math.min(previousWords.length, nextWords.length);
-  while (overlap > 0 && !previousWords.slice(-overlap)
-    .every((word, i) => sameTranscriptWords(word, nextWords[i]))) overlap--;
-  return previousWords.concat(nextWords.slice(overlap)).join(" ");
-}
-
-function mergeRecognitionResults(results, alternativeIndex = 0) {
-  return Array.from(results, result => (result[alternativeIndex] || result[0]).transcript)
-    .reduce((transcript, segment) => mergeRecognitionSegment(transcript, segment), "");
-}
-
-function mergeRecognitionAlternatives(results) {
-  const alternativeCount = Array.from(results)
-    .reduce((count, result) => Math.max(count, result.length), 0);
-  const merged = Array.from({ length: alternativeCount }, (_, i) => mergeRecognitionResults(results, i));
-  const rawCandidates = Array.from(results, result => Array.from(result, alt => alt.transcript.trim())).flat();
-  return [...merged, ...rawCandidates]
-    .filter((text, i, all) => text && all.indexOf(text) === i);
+function selectRecognitionCandidate(candidates, hints) {
+  return candidates.reduce((best, candidate, index) => {
+    const score = (Number(candidate.confidence) || 0) + hintSimilarity(candidate.text, hints) * 0.08 - index * 0.0001;
+    return !best || score > best.score ? { ...candidate, score } : best;
+  }, null);
 }
 
 function applyRecognitionHints(recognition, hints) {
   const uniqueHints = [...new Set(hints.map(text => text.trim()).filter(Boolean))].slice(0, 20);
   const Phrase = window.SpeechRecognitionPhrase || window.webkitSpeechRecognitionPhrase;
   if (Phrase && "phrases" in recognition) {
-    try { recognition.phrases = uniqueHints.map(text => new Phrase(text, 8)); } catch {}
-  }
-
-  const GrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
-  if (GrammarList && "grammars" in recognition && uniqueHints.length) {
-    const phrases = uniqueHints.map(text => text.replace(/[^a-zA-Z0-9'\s]/g, " ")
-      .replace(/\s+/g, " ").trim()).filter(Boolean);
-    if (!phrases.length) return;
-    try {
-      const grammars = new GrammarList();
-      grammars.addFromString("#JSGF V1.0; grammar tutor; public <phrase> = " + phrases.join(" | ") + " ;", 1);
-      recognition.grammars = grammars;
-    } catch {}
+    try { recognition.phrases = uniqueHints.map(text => new Phrase(text, 4)); } catch {}
   }
 }
 
 function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
   return new Promise(resolve => {
     if (!SR) return resolve({ error: "unsupported" });
-    const r = new SR();
-    r.lang = lang;
-    r.continuous = true;
-    r.interimResults = true;
-    r.maxAlternatives = 5;
-    applyRecognitionHints(r, hints);
     let done = false;
-    let heard = "";
-    let heardAlternatives = [];
+    let recognizer = null;
+    let activeSessionFinals = null;
+    const finalSegments = [];
     let speechEndTimer = null;
     let restartTimer = null;
-    const finish = res => {
+    const result = error => {
+      const candidates = buildRecognitionCandidates(finalSegments);
+      const selected = selectRecognitionCandidate(candidates, hints);
+      return selected ? { text: selected.text, alternatives: candidates.map(candidate => candidate.text) } : { error };
+    };
+    const finish = error => {
       if (!done) {
         done = true;
         clearTimeout(timer);
         clearTimeout(speechEndTimer);
         clearTimeout(restartTimer);
+        if (activeSessionFinals) commitSessionFinals(activeSessionFinals);
+        try { recognizer && recognizer.abort(); } catch {}
         ui.mic(false);
-        resolve(res);
+        resolve(result(error));
       }
     };
+    const commitSessionFinals = sessionFinals => {
+      [...sessionFinals.entries()].sort(([a], [b]) => a - b)
+        .forEach(([, alternatives]) => finalSegments.push(alternatives));
+      sessionFinals.clear();
+    };
     const restartIfWaiting = () => {
-      if (!keepListeningOnNoSpeech || done) return false;
+      if (!keepListeningOnNoSpeech || done) return;
       clearTimeout(restartTimer);
-      restartTimer = setTimeout(() => {
-        try { r.start(); }
-        catch (e) {
-          if (e.name !== "InvalidStateError") finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "start-failed" });
-        }
-      }, 100);
-      return true;
+      restartTimer = setTimeout(startRecognizer, 100);
     };
     const finishAfterSpeechEnd = () => {
       if (done) return;
       clearTimeout(speechEndTimer);
-      speechEndTimer = setTimeout(() => {
-        finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
-        try { r.stop(); } catch {}
-      }, ANSWER_SPEECH_PAUSE_MS);
+      speechEndTimer = setTimeout(() => finish("no-speech"), ANSWER_SPEECH_PAUSE_MS);
     };
     const timer = setTimeout(() => {
-      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "timeout" });
-      try { r.stop(); } catch {}
+      finish("timeout");
     }, timeoutMs || 12000);
-    r.onspeechstart = () => {
-      clearTimeout(speechEndTimer);
-    };
-    r.onspeechend = finishAfterSpeechEnd;
-    r.onresult = e => {
-      const currentAlternatives = mergeRecognitionAlternatives(e.results);
-      const mergedAlternatives = currentAlternatives
-        .map(candidate => mergeRecognitionSegment(heard, candidate));
-      heard = mergedAlternatives[0] || heard;
-      heardAlternatives = [...new Set([...mergedAlternatives, ...currentAlternatives])];
-    };
-    r.onerror = e => {
-      if (e.error === "no-speech") {
-        if (heard) finishAfterSpeechEnd();
-        if (restartIfWaiting()) return;
-      }
-      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: e.error });
-    };
-    r.onend = () => {
+    const startRecognizer = () => {
       if (done) return;
-      if (heard) finishAfterSpeechEnd();
-      if (restartIfWaiting()) return;
-      finish(heard ? { text: heard, alternatives: heardAlternatives } : { error: "no-speech" });
+      const r = new SR();
+      recognizer = r;
+      const sessionFinals = new Map();
+      activeSessionFinals = sessionFinals;
+      r.lang = lang;
+      r.continuous = true;
+      r.interimResults = true;
+      r.maxAlternatives = 5;
+      applyRecognitionHints(r, hints);
+      r.onspeechstart = () => clearTimeout(speechEndTimer);
+      r.onspeechend = finishAfterSpeechEnd;
+      r.onresult = e => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (!e.results[i].isFinal) continue;
+          sessionFinals.set(i, Array.from(e.results[i], alternative => ({
+            text: alternative.transcript.trim(), confidence: alternative.confidence,
+          })).filter(alternative => alternative.text));
+        }
+      };
+      r.onerror = e => {
+        if (done) return;
+        if (!["no-speech", "aborted", "network"].includes(e.error)) finish(e.error);
+      };
+      r.onend = () => {
+        if (done) return;
+        commitSessionFinals(sessionFinals);
+        if (activeSessionFinals === sessionFinals) activeSessionFinals = null;
+        if (finalSegments.length) finishAfterSpeechEnd();
+        restartIfWaiting();
+        if (!keepListeningOnNoSpeech) finish(finalSegments.length ? "complete" : "no-speech");
+      };
+      try { r.start(); } catch { finish("start-failed"); }
     };
     ui.mic(true);
-    try { r.start(); } catch { finish({ error: "start-failed" }); }
+    startRecognizer();
   });
 }
 
