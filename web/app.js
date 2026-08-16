@@ -289,6 +289,8 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
     const finalSegments = [];
     let speechEndTimer = null;
     let restartTimer = null;
+    let speechSequence = 0;
+    let endedSpeechSequence = 0;
     const result = error => {
       const candidates = buildRecognitionCandidates(finalSegments);
       const selected = selectRecognitionCandidate(candidates, hints);
@@ -318,6 +320,7 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
     };
     const finishAfterSpeechEnd = () => {
       if (done) return;
+      endedSpeechSequence = speechSequence;
       clearTimeout(speechEndTimer);
       speechEndTimer = setTimeout(() => finish("no-speech"), ANSWER_SPEECH_PAUSE_MS);
     };
@@ -335,15 +338,18 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
       r.interimResults = true;
       r.maxAlternatives = 5;
       applyRecognitionHints(r, hints);
-      r.onspeechstart = () => clearTimeout(speechEndTimer);
+      r.onspeechstart = () => { speechSequence++; };
       r.onspeechend = finishAfterSpeechEnd;
       r.onresult = e => {
+        let receivedText = false;
         for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i][0] && e.results[i][0].transcript.trim()) receivedText = true;
           if (!e.results[i].isFinal) continue;
           sessionFinals.set(i, Array.from(e.results[i], alternative => ({
             text: alternative.transcript.trim(), confidence: alternative.confidence,
           })).filter(alternative => alternative.text));
         }
+        if (receivedText && speechSequence > endedSpeechSequence) clearTimeout(speechEndTimer);
       };
       r.onerror = e => {
         if (done) return;
