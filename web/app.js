@@ -63,6 +63,8 @@ let voices = [];
 const KOREAN_SPEECH_RATE = 1.1;
 const ANSWER_LISTEN_TIMEOUT_MS = 45000;
 const ANSWER_SPEECH_PAUSE_MS = 3500;
+const TTS_TIMEOUT_MIN_MS = 8000;
+const TTS_TIMEOUT_MAX_MS = 45000;
 function loadVoices() { voices = speechSynthesis.getVoices(); }
 loadVoices();
 if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = loadVoices;
@@ -136,16 +138,31 @@ function updateTtsEngineFieldsVisibility() {
   $("field-english-voice-google").classList.toggle("hidden", !isGoogle);
 }
 
+function speechTimeoutMs(text) {
+  return Math.min(TTS_TIMEOUT_MAX_MS, Math.max(TTS_TIMEOUT_MIN_MS, String(text).length * 450));
+}
+
 function speakBrowser(text, lang) {
   return new Promise(resolve => {
     if (!text) return resolve();
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve();
+    };
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
     const v = pickVoice(lang);
     if (v) u.voice = v;
     u.rate = lang.startsWith("en") ? 0.92 : KOREAN_SPEECH_RATE;
-    u.onend = resolve;
-    u.onerror = resolve;
+    u.onend = finish;
+    u.onerror = finish;
+    const timer = setTimeout(() => {
+      speechSynthesis.cancel();
+      finish();
+    }, speechTimeoutMs(text));
     speechSynthesis.speak(u);
   });
 }
@@ -226,10 +243,22 @@ function stopCurrentAudio() {
   if (audioStopResolve) { const r = audioStopResolve; audioStopResolve = null; r(); }
 }
 
+function withTimeout(promise, timeoutMs, onTimeout) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      try { onTimeout(); } finally { reject(new Error("시간 제한 초과")); }
+    }, timeoutMs);
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
 async function speak(text, lang) {
   if (!text) return;
   if (LS.ttsEngine === "google" && LS.googleTtsKey) {
-    try { await speakGoogle(text, lang); return; }
+    try { await withTimeout(speakGoogle(text, lang), speechTimeoutMs(text), stopCurrentAudio); return; }
     catch (e) { console.error("Google TTS 실패 - 브라우저 음성으로 대체:", e); }
   }
   await speakBrowser(text, lang);
@@ -238,132 +267,66 @@ async function speak(text, lang) {
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-function transcriptWords(text) {
-  return String(text).toLowerCase().match(/[a-z0-9']+/g) || [];
-}
-
-function buildRecognitionCandidates(finalSegments) {
-  const count = Math.max(0, ...finalSegments.map(segment => segment.length));
-  const candidates = Array.from({ length: count }, (_, index) => {
-    const choices = finalSegments.map(segment => segment[index] || segment[0]);
-    return {
-      text: choices.map(choice => choice.text).join(" ").trim(),
-      confidence: choices.reduce((sum, choice) => sum + (Number(choice.confidence) || 0), 0) / choices.length,
-    };
-  });
-  return candidates.filter((candidate, index, all) => candidate.text
-    && all.findIndex(other => other.text === candidate.text) === index);
-}
-
-function hintSimilarity(text, hints) {
-  const words = transcriptWords(text);
-  if (!words.length) return 0;
-  return hints.reduce((best, hint) => {
-    const hintWords = new Set(transcriptWords(hint));
-    const matches = words.filter(word => hintWords.has(word)).length;
-    return Math.max(best, matches / words.length);
-  }, 0);
-}
-
-function selectRecognitionCandidate(candidates, hints) {
-  return candidates.reduce((best, candidate, index) => {
-    const score = (Number(candidate.confidence) || 0) + hintSimilarity(candidate.text, hints) * 0.08 - index * 0.0001;
-    return !best || score > best.score ? { ...candidate, score } : best;
-  }, null);
-}
-
-function applyRecognitionHints(recognition, hints) {
-  const uniqueHints = [...new Set(hints.map(text => text.trim()).filter(Boolean))].slice(0, 20);
-  const Phrase = window.SpeechRecognitionPhrase || window.webkitSpeechRecognitionPhrase;
-  if (Phrase && "phrases" in recognition) {
-    try { recognition.phrases = uniqueHints.map(text => new Phrase(text, 4)); } catch {}
-  }
-}
-
-function listen(lang, timeoutMs, keepListeningOnNoSpeech = false, hints = []) {
+function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   return new Promise(resolve => {
     if (!SR) return resolve({ error: "unsupported" });
     let done = false;
     let recognizer = null;
-    let activeSessionFinals = null;
-    const finalSegments = [];
-    let speechEndTimer = null;
     let restartTimer = null;
-    let speechSequence = 0;
-    let endedSpeechSequence = 0;
-    const result = error => {
-      const candidates = buildRecognitionCandidates(finalSegments);
-      const selected = selectRecognitionCandidate(candidates, hints);
-      return selected ? { text: selected.text, alternatives: candidates.map(candidate => candidate.text) } : { error };
-    };
-    const finish = error => {
+    let finalTimer = null;
+    let finalText = "";
+    const deadline = Date.now() + (timeoutMs || 12000);
+    const finish = result => {
       if (!done) {
         done = true;
         clearTimeout(timer);
-        clearTimeout(speechEndTimer);
         clearTimeout(restartTimer);
-        if (activeSessionFinals) commitSessionFinals(activeSessionFinals);
+        clearTimeout(finalTimer);
         try { recognizer && recognizer.abort(); } catch {}
         ui.mic(false);
-        resolve(result(error));
+        resolve(result);
       }
     };
-    const commitSessionFinals = sessionFinals => {
-      [...sessionFinals.entries()].sort(([a], [b]) => a - b)
-        .forEach(([, alternatives]) => finalSegments.push(alternatives));
-      sessionFinals.clear();
+    const finishAfterFinalResult = () => {
+      clearTimeout(finalTimer);
+      finalTimer = setTimeout(() => finish({ text: finalText, alternatives: [] }), ANSWER_SPEECH_PAUSE_MS);
     };
-    const restartIfWaiting = () => {
-      if (!keepListeningOnNoSpeech || done) return;
+    const restartWhileWaiting = () => {
+      if (!keepListeningOnNoSpeech || done || finalText || Date.now() >= deadline) return false;
       clearTimeout(restartTimer);
-      restartTimer = setTimeout(startRecognizer, 100);
-    };
-    const finishAfterSpeechEnd = () => {
-      if (done) return;
-      endedSpeechSequence = speechSequence;
-      clearTimeout(speechEndTimer);
-      speechEndTimer = setTimeout(() => finish("no-speech"), ANSWER_SPEECH_PAUSE_MS);
+      restartTimer = setTimeout(startRecognizer, 0);
+      return true;
     };
     const timer = setTimeout(() => {
-      finish("timeout");
+      finish({ error: "timeout" });
     }, timeoutMs || 12000);
     const startRecognizer = () => {
       if (done) return;
       const r = new SR();
       recognizer = r;
-      const sessionFinals = new Map();
-      activeSessionFinals = sessionFinals;
       r.lang = lang;
-      r.continuous = true;
-      r.interimResults = true;
-      r.maxAlternatives = 5;
-      applyRecognitionHints(r, hints);
-      r.onspeechstart = () => { speechSequence++; };
-      r.onspeechend = finishAfterSpeechEnd;
+      r.continuous = false;
+      r.interimResults = false;
+      r.maxAlternatives = 1;
       r.onresult = e => {
-        let receivedText = false;
         for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i][0] && e.results[i][0].transcript.trim()) receivedText = true;
           if (!e.results[i].isFinal) continue;
-          sessionFinals.set(i, Array.from(e.results[i], alternative => ({
-            text: alternative.transcript.trim(), confidence: alternative.confidence,
-          })).filter(alternative => alternative.text));
+          finalText = e.results[i][0].transcript.trim();
+          if (finalText) finishAfterFinalResult();
         }
-        if (receivedText && speechSequence > endedSpeechSequence) clearTimeout(speechEndTimer);
       };
       r.onerror = e => {
         if (done) return;
-        if (!["no-speech", "aborted", "network"].includes(e.error)) finish(e.error);
+        if (e.error === "no-speech" && restartWhileWaiting()) return;
+        finish({ error: e.error });
       };
       r.onend = () => {
         if (done) return;
-        commitSessionFinals(sessionFinals);
-        if (activeSessionFinals === sessionFinals) activeSessionFinals = null;
-        if (finalSegments.length) finishAfterSpeechEnd();
-        restartIfWaiting();
-        if (!keepListeningOnNoSpeech) finish(finalSegments.length ? "complete" : "no-speech");
+        if (finalText) return;
+        if (restartWhileWaiting()) return;
+        finish({ error: "no-speech" });
       };
-      try { r.start(); } catch { finish("start-failed"); }
+      try { r.start(); } catch { finish({ error: "start-failed" }); }
     };
     ui.mic(true);
     startRecognizer();
@@ -378,16 +341,33 @@ const TRAINING_PROMPT_SYSTEM =
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
-/* 일시 오류(과부하/한도)는 자동 재시도 */
+const LLM_REQUEST_TIMEOUT_MS = 15000;
+
+function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
+  return fetch(url, { ...options, signal: controller.signal })
+    .catch(error => {
+      if (error && error.name === "AbortError") {
+        const timeoutError = new Error("AI 응답 시간 제한 초과");
+        timeoutError.timedOut = true;
+        throw timeoutError;
+      }
+      throw error;
+    })
+    .finally(() => clearTimeout(timer));
+}
+
+/* 일시 오류(과부하/한도/시간 제한)는 한 번만 재시도 */
 async function callLLM(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
   let lastErr;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     try {
       return await (LS.engine === "gemini" ? callGemini(user, maxTokens, systemPrompt) : callClaude(user, maxTokens, systemPrompt));
     } catch (e) {
       lastErr = e;
-      if (e.status === 429 || e.status >= 500) {
-        await new Promise(r => setTimeout(r, 2000 * (i + 1)));
+      if (i === 0 && (e.timedOut || e.status === 429 || e.status >= 500)) {
+        await new Promise(r => setTimeout(r, 2000));
         continue;
       }
       throw e;
@@ -405,7 +385,7 @@ async function resolveGeminiModel() {
   if (cached && !geminiFailed.has(cached)) return cached;
   let model = "gemini-flash-latest";
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key="
       + encodeURIComponent(LS.geminiKey));
     if (res.ok) {
@@ -437,7 +417,7 @@ async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
   const model = await resolveGeminiModel();
   const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model
     + ":generateContent?key=" + encodeURIComponent(LS.geminiKey);
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -480,7 +460,7 @@ async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
 }
 
 async function callClaude(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -627,10 +607,6 @@ function trainingPromptText(prompt, showTarget) {
 }
 
 /* 교정 */
-function recognitionCandidates(heard, alternatives = []) {
-  return [...new Set([heard, ...alternatives].filter(Boolean))].slice(0, 12);
-}
-
 function sanitizeFeedback(feedback) {
   const cleaned = String(feedback || "")
     .replace(/(?:음성\s*인식|인식\s*결과|발음\s*인식|잘\s*안\s*들렸|잘\s*못\s*들었)[^.?!\n]*[.?!]?/gi, "")
@@ -640,23 +616,21 @@ function sanitizeFeedback(feedback) {
   return firstSentence.length > 32 ? firstSentence.slice(0, 32).trim() + "…" : firstSentence;
 }
 
-async function checkPattern(p, targetEn, heard, alternatives) {
-  const candidates = JSON.stringify(recognitionCandidates(heard, alternatives));
+async function checkPattern(p, targetEn, heard) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n목표 영어 문장: "${targetEn}"\n` +
-    `음성인식 첫 결과: "${heard}"\n음성인식 후보: ${candidates}\n` +
-    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. 후보 중 하나가 조건을 충족하면 correct는 true입니다. feedback_ko에는 핵심 오류 하나만 18자 안팎의 짧은 한 문장으로 쓰세요. 칭찬, 긴 설명, 음성 인식·발음·재시도 안내는 절대 쓰지 마세요.\n` +
+    `음성인식 원문: "${heard}"\n` +
+    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. feedback_ko에는 핵심 오류 하나만 18자 안팎의 짧은 한 문장으로 쓰세요. 칭찬, 긴 설명, 음성 인식·발음·재시도 안내는 절대 쓰지 마세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "핵심 오류 한 가지를 말하는 짧은 한국어 문장", "model_en": "가장 자연스러운 영어 문장"}`
   );
   return parseJson(raw);
 }
 
-async function checkAnswer(p, question, heard, alternatives) {
-  const candidates = JSON.stringify(recognitionCandidates(heard, alternatives));
+async function checkAnswer(p, question, heard) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n질문: "${question}"\n` +
-    `음성인식 첫 결과: "${heard}"\n음성인식 후보: ${candidates}\n` +
-    `판정 기준: 모범 답안과 정확히 같은 문장을 요구하지 마세요. 학습자가 이 패턴(자연스러운 축약·시제 변화 포함)을 사용하고 질문에 맞는 뜻을 전달했다면 correct는 true입니다. 후보 중 하나가 조건을 충족하면 correct는 true입니다. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
+    `음성인식 원문: "${heard}"\n` +
+    `판정 기준: 모범 답안과 정확히 같은 문장을 요구하지 마세요. 학습자가 이 패턴(자연스러운 축약·시제 변화 포함)을 사용하고 질문에 맞는 뜻을 전달했다면 correct는 true입니다. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "이 패턴을 사용한 자연스러운 모범 답변 한 문장"}`
   );
   return parseJson(raw);
@@ -863,17 +837,17 @@ async function step(fn) {
   return fn();
 }
 
-/* 듣기: 실패 시 재요청, 3회 실패하면 null 반환 */
-async function listenWithRetry(hints = []) {
-  for (let i = 0; i < 3; i++) {
+/* 듣기: 실패 시 한 번만 재요청 */
+async function listenWithRetry() {
+  for (let i = 0; i < 2; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, hints));
+    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
     if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("이 브라우저에서는 학습을 계속할 수 없습니다. 크롬으로 열어주세요.", "ko-KR"));
       throw { quit: true };
     }
-    if (i < 2) {
+    if (i < 1) {
       ui.sub("(한 번 더 말해보세요)");
       await step(() => speak("한 번 더 말해보세요.", "ko-KR"));
     }
@@ -881,16 +855,16 @@ async function listenWithRetry(hints = []) {
   return null;
 }
 
-async function listenWithConversationRetry(hints = []) {
-  for (let i = 0; i < 3; i++) {
+async function listenWithConversationRetry() {
+  for (let i = 0; i < 2; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, hints));
+    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
     if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("Speech recognition is not supported in this browser.", "en-US"));
       throw { quit: true };
     }
-    if (i < 2) {
+    if (i < 1) {
       ui.sub("Please say it once more.");
       await step(() => speak("Please say it once more.", "en-US"));
     }
@@ -901,7 +875,7 @@ async function listenWithConversationRetry(hints = []) {
 async function shadow(modelEn) {
   ui.main(modelEn);
   ui.sub("따라 말해보세요 (쉐도잉)");
-  const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [modelEn]));
+  const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
   if (r.text) ui.sub("들린 내용: " + r.text);
 }
 
@@ -915,7 +889,7 @@ async function runPatternTaskLegacy(task) {
   await step(() => speak(promptKo, "ko-KR"));
   if (state.skip || state.back) return;
 
-  const recognition = await listenWithRetry([p.title, ...p.examples]);
+  const recognition = await listenWithRetry();
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
@@ -926,7 +900,7 @@ async function runPatternTaskLegacy(task) {
     const heard = recognition.text;
     ui.sub("들린 내용: " + heard);
     ui.main("확인 중...");
-    const result = await step(() => checkPattern(p, ex, heard, recognition.alternatives));
+    const result = await step(() => checkPattern(p, ex, heard));
     feedbackKo = sanitizeFeedback(result.feedback_ko);
     modelEn = result.model_en || ex;
   }
@@ -946,7 +920,7 @@ async function runSituationTaskLegacy(task) {
   await step(() => speak(q.question_en, "en-US"));
   if (state.skip || state.back) return;
 
-  const recognition = await listenWithRetry([p.title, ...p.examples]);
+  const recognition = await listenWithRetry();
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
@@ -957,7 +931,7 @@ async function runSituationTaskLegacy(task) {
     const heard = recognition.text;
     ui.sub("들린 내용: " + heard);
     ui.main("확인 중...");
-    const result = await step(() => checkAnswer(p, q.question_en, heard, recognition.alternatives));
+    const result = await step(() => checkAnswer(p, q.question_en, heard));
     feedbackKo = sanitizeFeedback(result.feedback_ko);
     modelEn = result.model_en || p.examples[0];
   }
@@ -980,7 +954,7 @@ async function runGuidedPatternTask(task) {
   await step(() => speak(promptText, "ko-KR"));
   if (state.skip || state.back) return;
 
-  const recognition = await listenWithRetry([p.title, ...p.examples]);
+  const recognition = await listenWithRetry();
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
@@ -991,9 +965,16 @@ async function runGuidedPatternTask(task) {
     const heard = recognition.text;
     ui.sub("들은 내용: " + heard);
     ui.main("확인 중...");
-    const result = await step(() => checkPattern(p, ex, heard, recognition.alternatives));
-    feedbackKo = sanitizeFeedback(result.feedback_ko);
-    modelEn = result.model_en || ex;
+    try {
+      const result = await step(() => checkPattern(p, ex, heard));
+      feedbackKo = sanitizeFeedback(result.feedback_ko);
+      modelEn = result.model_en || ex;
+    } catch (e) {
+      if (e && e.quit) throw e;
+      console.error(e);
+      feedbackKo = "최종 문장입니다.";
+      modelEn = ex;
+    }
   }
 
   ui.main(feedbackKo + "\n\n최종 문장:\n" + modelEn);
@@ -1004,7 +985,7 @@ async function runGuidedPatternTask(task) {
 
   ui.main("따라 말해보세요.\n\n" + modelEn);
   ui.sub("");
-  await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true, [modelEn]));
+  await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
 }
 
 async function runPatternTask(task) {
@@ -1035,8 +1016,7 @@ async function runDailyConversationTask(task) {
     await step(() => speak(aiLine, "en-US"));
     if (state.skip || state.back) return;
 
-    const hints = task.patterns.flatMap(p => [p.title, ...p.examples]);
-    const recognition = await listenWithConversationRetry(hints);
+    const recognition = await listenWithConversationRetry();
     if (state.skip || state.back) return;
     const heard = recognition && recognition.text;
     history.push({ ai: aiLine, user: heard || "" });
@@ -1123,13 +1103,11 @@ async function runDay() {
       else if (task.kind === "conversation") await runDailyConversationTask(task);
     } catch (e) {
       if (e && e.quit) throw e;
-      // API 오류 등: 음성 안내 후 잠시 대기, 같은 문제 재시도 (위치 이동 없음)
+      // 외부 API가 끝까지 응답하지 않으면 학습을 멈추지 않고 다음 문제로 진행
       console.error(e);
-      ui.main("오류가 발생했어요");
-      ui.sub(String(e.message || e));
-      await speak("오류가 발생했어요. 잠시 후 다시 시도합니다.", "ko-KR");
-      await new Promise(r => setTimeout(r, 3000));
-      continue;
+      ui.main("연결이 지연되어 다음 문제로 넘어갑니다.");
+      ui.sub("");
+      await speak("연결이 지연되어 다음 문제로 넘어갑니다.", "ko-KR");
     }
 
     const prevDay = day, prevPos = pos;
