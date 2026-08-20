@@ -142,14 +142,18 @@ function speechTimeoutMs(text) {
   return Math.min(TTS_TIMEOUT_MAX_MS, Math.max(TTS_TIMEOUT_MIN_MS, String(text).length * 450));
 }
 
+let stopBrowserSpeech = null;
+
 function speakBrowser(text, lang) {
   return new Promise(resolve => {
     if (!text) return resolve();
     let done = false;
+    const token = {};
     const finish = () => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      if (stopBrowserSpeech && stopBrowserSpeech.token === token) stopBrowserSpeech = null;
       resolve();
     };
     const u = new SpeechSynthesisUtterance(text);
@@ -163,6 +167,12 @@ function speakBrowser(text, lang) {
       speechSynthesis.cancel();
       finish();
     }, speechTimeoutMs(text));
+    const stop = () => {
+      speechSynthesis.cancel();
+      finish();
+    };
+    stop.token = token;
+    stopBrowserSpeech = stop;
     speechSynthesis.speak(u);
   });
 }
@@ -243,6 +253,12 @@ function stopCurrentAudio() {
   if (audioStopResolve) { const r = audioStopResolve; audioStopResolve = null; r(); }
 }
 
+function stopCurrentSpeech() {
+  if (stopBrowserSpeech) stopBrowserSpeech();
+  else speechSynthesis.cancel();
+  stopCurrentAudio();
+}
+
 function withTimeout(promise, timeoutMs, onTimeout) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -266,6 +282,11 @@ async function speak(text, lang) {
 
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let cancelActiveListening = null;
+
+function stopActiveListening(reason = "cancelled") {
+  if (cancelActiveListening) cancelActiveListening(reason);
+}
 
 function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   return new Promise(resolve => {
@@ -275,6 +296,7 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     let restartTimer = null;
     let finalTimer = null;
     let finalText = "";
+    let cancel = null;
     const deadline = Date.now() + (timeoutMs || 12000);
     const finish = result => {
       if (!done) {
@@ -284,9 +306,12 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
         clearTimeout(finalTimer);
         try { recognizer && recognizer.abort(); } catch {}
         ui.mic(false);
+        if (cancelActiveListening === cancel) cancelActiveListening = null;
         resolve(result);
       }
     };
+    cancel = reason => finish({ error: reason });
+    cancelActiveListening = cancel;
     const finishAfterFinalResult = () => {
       clearTimeout(finalTimer);
       finalTimer = setTimeout(() => finish({ text: finalText, alternatives: [] }), ANSWER_SPEECH_PAUSE_MS);
@@ -342,20 +367,61 @@ const TRAINING_PROMPT_SYSTEM =
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
 const LLM_REQUEST_TIMEOUT_MS = 15000;
+const activeRequestControllers = new Set();
+const activeRetryWaiters = new Set();
+
+function cancelledRequestError() {
+  const error = new Error("AI 요청 취소");
+  error.cancelled = true;
+  return error;
+}
+
+function cancelActiveRequests() {
+  for (const controller of activeRequestControllers) controller.abort();
+  for (const cancel of activeRetryWaiters) cancel();
+}
+
+function waitBeforeLlmRetry(timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const finish = () => {
+      clearTimeout(timer);
+      activeRetryWaiters.delete(cancel);
+      resolve();
+    };
+    const cancel = () => {
+      clearTimeout(timer);
+      activeRetryWaiters.delete(cancel);
+      reject(cancelledRequestError());
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    activeRetryWaiters.add(cancel);
+  });
+}
 
 function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
+  let timedOut = false;
+  activeRequestControllers.add(controller);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, LLM_REQUEST_TIMEOUT_MS);
   return fetch(url, { ...options, signal: controller.signal })
     .catch(error => {
       if (error && error.name === "AbortError") {
+        if (!timedOut) {
+          throw cancelledRequestError();
+        }
         const timeoutError = new Error("AI 응답 시간 제한 초과");
         timeoutError.timedOut = true;
         throw timeoutError;
       }
       throw error;
     })
-    .finally(() => clearTimeout(timer));
+    .finally(() => {
+      clearTimeout(timer);
+      activeRequestControllers.delete(controller);
+    });
 }
 
 /* 일시 오류(과부하/한도/시간 제한)는 한 번만 재시도 */
@@ -366,8 +432,9 @@ async function callLLM(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
       return await (LS.engine === "gemini" ? callGemini(user, maxTokens, systemPrompt) : callClaude(user, maxTokens, systemPrompt));
     } catch (e) {
       lastErr = e;
+      if (e && e.cancelled) throw e;
       if (i === 0 && (e.timedOut || e.status === 429 || e.status >= 500)) {
-        await new Promise(r => setTimeout(r, 2000));
+        await waitBeforeLlmRetry(2000);
         continue;
       }
       throw e;
@@ -408,7 +475,9 @@ async function resolveGeminiModel() {
         if (hit) { model = hit; break; }
       }
     }
-  } catch {}
+  } catch (e) {
+    if (e && e.cancelled) throw e;
+  }
   localStorage.setItem("geminiModel", model);
   return model;
 }
@@ -820,28 +889,44 @@ const ui = {
 
 /* ==================== 학습 엔진 ==================== */
 const state = { running: false, paused: false, skip: false, back: false, quit: false };
+const pauseWaiters = new Set();
+
+function releasePauseWaiters() {
+  for (const resolve of pauseWaiters) resolve();
+  pauseWaiters.clear();
+}
 
 function waitWhilePaused() {
-  return new Promise(resolve => {
-    (function check() {
-      if (!state.paused || state.quit) return resolve();
-      setTimeout(check, 300);
-    })();
-  });
+  if (!state.paused || state.quit) return Promise.resolve();
+  return new Promise(resolve => pauseWaiters.add(resolve));
 }
 
 async function step(fn) {
   if (state.quit) throw { quit: true };
   await waitWhilePaused();
   if (state.quit) throw { quit: true };
-  return fn();
+  if (state.skip || state.back) throw { cancelled: true };
+  const result = await fn();
+  await waitWhilePaused();
+  if (state.quit) throw { quit: true };
+  if (state.skip || state.back) throw { cancelled: true };
+  return result;
+}
+
+async function listenUntilResumed() {
+  while (!state.skip && !state.back && !state.quit) {
+    const result = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+    if (result.error !== "paused") return result;
+  }
+  return { error: "cancelled" };
 }
 
 /* 듣기: 실패 시 한 번만 재요청 */
 async function listenWithRetry() {
   for (let i = 0; i < 2; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+    const r = await listenUntilResumed();
+    if (state.skip || state.back || state.quit) return null;
     if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("이 브라우저에서는 학습을 계속할 수 없습니다. 크롬으로 열어주세요.", "ko-KR"));
@@ -858,7 +943,8 @@ async function listenWithRetry() {
 async function listenWithConversationRetry() {
   for (let i = 0; i < 2; i++) {
     if (state.skip || state.back || state.quit) return null;
-    const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+    const r = await listenUntilResumed();
+    if (state.skip || state.back || state.quit) return null;
     if (r.text) return r;
     if (r.error === "unsupported") {
       await step(() => speak("Speech recognition is not supported in this browser.", "en-US"));
@@ -875,7 +961,7 @@ async function listenWithConversationRetry() {
 async function shadow(modelEn) {
   ui.main(modelEn);
   ui.sub("따라 말해보세요 (쉐도잉)");
-  const r = await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+  const r = await listenUntilResumed();
   if (r.text) ui.sub("들린 내용: " + r.text);
 }
 
@@ -970,7 +1056,8 @@ async function runGuidedPatternTask(task) {
       feedbackKo = sanitizeFeedback(result.feedback_ko);
       modelEn = result.model_en || ex;
     } catch (e) {
-      if (e && e.quit) throw e;
+      if ((e && e.quit) || state.quit) throw { quit: true };
+      if ((e && e.cancelled) || state.skip || state.back) return;
       console.error(e);
       feedbackKo = "최종 문장입니다.";
       modelEn = ex;
@@ -985,7 +1072,7 @@ async function runGuidedPatternTask(task) {
 
   ui.main("따라 말해보세요.\n\n" + modelEn);
   ui.sub("");
-  await step(() => listen("en-US", ANSWER_LISTEN_TIMEOUT_MS, true));
+  await listenUntilResumed();
 }
 
 async function runPatternTask(task) {
@@ -1090,24 +1177,26 @@ async function runDay() {
     ui.header(day, task.sessionName, pos + 1, tasks.length);
     $("btn-back").disabled = (day === 1 && pos === 0);
 
-    if (!previousTask || previousTask.sessionName !== task.sessionName) {
-      await step(() => speak(sessionIntro(task.sessionName), "ko-KR"));
-    } else if (!arrivedByBack && previousTask.sessionName === task.sessionName
-      && previousTask.p.num !== task.p.num) {
-      await step(() => speak("다음 패턴이에요.", "ko-KR"));
-    }
-
     try {
+      if (!previousTask || previousTask.sessionName !== task.sessionName) {
+        await step(() => speak(sessionIntro(task.sessionName), "ko-KR"));
+      } else if (!arrivedByBack && previousTask.sessionName === task.sessionName
+        && previousTask.p.num !== task.p.num) {
+        await step(() => speak("다음 패턴이에요.", "ko-KR"));
+      }
+
       if (task.kind === "pattern") await runPatternTask(task);
       else if (task.kind === "situation") await runSituationTask(task);
       else if (task.kind === "conversation") await runDailyConversationTask(task);
     } catch (e) {
-      if (e && e.quit) throw e;
-      // 외부 API가 끝까지 응답하지 않으면 학습을 멈추지 않고 다음 문제로 진행
-      console.error(e);
-      ui.main("연결이 지연되어 다음 문제로 넘어갑니다.");
-      ui.sub("");
-      await speak("연결이 지연되어 다음 문제로 넘어갑니다.", "ko-KR");
+      if ((e && e.quit) || state.quit) throw { quit: true };
+      if (!((e && e.cancelled) || state.skip || state.back)) {
+        // 외부 API가 끝까지 응답하지 않으면 학습을 멈추지 않고 다음 문제로 진행
+        console.error(e);
+        ui.main("연결이 지연되어 다음 문제로 넘어갑니다.");
+        ui.sub("");
+        await speak("연결이 지연되어 다음 문제로 넘어갑니다.", "ko-KR");
+      }
     }
 
     const prevDay = day, prevPos = pos;
@@ -1156,8 +1245,7 @@ $("btn-start").onclick = async () => {
   try { await runDay(); }
   catch (e) { if (!(e && e.quit)) console.error(e); }
   state.running = false;
-  speechSynthesis.cancel();
-  stopCurrentAudio();
+  stopCurrentSpeech();
   if (wakeLock) { try { wakeLock.release(); } catch {} wakeLock = null; }
   ui.show("home");
   refreshHome();
@@ -1169,20 +1257,36 @@ $("btn-pause").onclick = () => {
   if (state.paused) {
     speechSynthesis.pause();
     if (currentAudio) currentAudio.pause();
+    stopActiveListening("paused");
   } else {
     speechSynthesis.resume();
     if (currentAudio) currentAudio.play().catch(() => {});
+    releasePauseWaiters();
   }
 };
 
-$("btn-skip").onclick = () => { state.skip = true; speechSynthesis.cancel(); stopCurrentAudio(); };
+function cancelCurrentWork() {
+  stopActiveListening();
+  cancelActiveRequests();
+  stopCurrentSpeech();
+}
 
-$("btn-back").onclick = () => { state.back = true; speechSynthesis.cancel(); stopCurrentAudio(); };
+$("btn-skip").onclick = () => {
+  state.skip = true; state.paused = false;
+  releasePauseWaiters();
+  cancelCurrentWork();
+};
+
+$("btn-back").onclick = () => {
+  state.back = true; state.paused = false;
+  releasePauseWaiters();
+  cancelCurrentWork();
+};
 
 $("btn-quit").onclick = () => {
   state.quit = true; state.paused = false;
-  speechSynthesis.cancel();
-  stopCurrentAudio();
+  releasePauseWaiters();
+  cancelCurrentWork();
 };
 
 function openSettings() {
