@@ -282,21 +282,65 @@ async function speak(text, lang) {
 
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const LIVE_STT_MODEL = "gemini-3.1-flash-live-preview";
+const LIVE_STT_SAMPLE_RATE = 16000;
+const LIVE_STT_SILENCE_DURATION_MS = 3500;
+const LIVE_STT_TRANSCRIPT_SETTLE_MS = 350;
+const LIVE_STT_ENDPOINT = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=";
 let cancelActiveListening = null;
 
 function stopActiveListening(reason = "cancelled") {
   if (cancelActiveListening) cancelActiveListening(reason);
 }
 
-function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
+function buildGeminiLiveSetup() {
+  return {
+    setup: {
+      model: "models/" + LIVE_STT_MODEL,
+      responseModalities: ["AUDIO"],
+      inputAudioTranscription: {},
+      realtimeInputConfig: {
+        automaticActivityDetection: {
+          disabled: false,
+          endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
+          prefixPaddingMs: 300,
+          silenceDurationMs: LIVE_STT_SILENCE_DURATION_MS,
+        },
+      },
+    },
+  };
+}
+
+function floatAudioToPcm16(input, inputRate) {
+  const ratio = inputRate / LIVE_STT_SAMPLE_RATE;
+  const length = Math.max(1, Math.round(input.length / ratio));
+  const output = new Int16Array(length);
+  for (let i = 0; i < length; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.min(input.length, Math.max(start + 1, Math.floor((i + 1) * ratio)));
+    let total = 0;
+    for (let j = start; j < end; j++) total += input[j];
+    const sample = Math.max(-1, Math.min(1, total / (end - start)));
+    output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+  }
+  return output.buffer;
+}
+
+function audioBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   return new Promise(resolve => {
     if (!SR) return resolve({ error: "unsupported" });
     let done = false;
     let recognizer = null;
     let restartTimer = null;
     let finalTimer = null;
-    const finalSegments = [];
-    let hasRecognitionResult = false;
+    let finalText = "";
     let cancel = null;
     const deadline = Date.now() + (timeoutMs || 12000);
     const finish = result => {
@@ -313,16 +357,14 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     };
     cancel = reason => finish({ error: reason });
     cancelActiveListening = cancel;
-    const finalTranscript = () => finalSegments.filter(Boolean).join(" ").trim();
-    const finishAfterLatestResult = () => {
+    const finishAfterFinalResult = () => {
       clearTimeout(finalTimer);
       finalTimer = setTimeout(() => {
-        const text = finalTranscript();
-        finish(text ? { text, alternatives: [] } : { error: "no-final" });
+        finish(finalText ? { text: finalText, alternatives: [] } : { error: "no-final" });
       }, ANSWER_SPEECH_PAUSE_MS);
     };
     const restartWhileWaiting = () => {
-      if (!keepListeningOnNoSpeech || done || hasRecognitionResult || Date.now() >= deadline) return false;
+      if (!keepListeningOnNoSpeech || done || finalText || Date.now() >= deadline) return false;
       clearTimeout(restartTimer);
       restartTimer = setTimeout(startRecognizer, 0);
       return true;
@@ -335,27 +377,25 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       const r = new SR();
       recognizer = r;
       r.lang = lang;
-      r.continuous = true;
-      r.interimResults = true;
+      r.continuous = false;
+      r.interimResults = false;
       r.maxAlternatives = 1;
       r.onresult = e => {
         for (let i = e.resultIndex; i < e.results.length; i++) {
-          hasRecognitionResult = true;
-          if (e.results[i].isFinal) finalSegments[i] = e.results[i][0].transcript.trim();
+          if (e.results[i].isFinal) finalText = e.results[i][0].transcript.trim();
         }
-        // 임시 결과는 채점하지 않고, 사용자가 아직 말하는 중일 때만 종료 시간을 연장한다.
-        finishAfterLatestResult();
+        if (finalText) finishAfterFinalResult();
       };
       r.onerror = e => {
         if (done) return;
         if (e.error === "no-speech") {
-          if (hasRecognitionResult || restartWhileWaiting()) return;
+          if (finalText || restartWhileWaiting()) return;
         }
         finish({ error: e.error });
       };
       r.onend = () => {
         if (done) return;
-        if (hasRecognitionResult) return;
+        if (finalText) return;
         if (restartWhileWaiting()) return;
         finish({ error: "no-speech" });
       };
@@ -364,6 +404,125 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     ui.mic(true);
     startRecognizer();
   });
+}
+
+function listenWithGeminiLive(timeoutMs) {
+  return new Promise(resolve => {
+    if (!LS.geminiKey || !window.WebSocket || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return resolve({ error: "live-unavailable" });
+    }
+
+    let done = false;
+    let cancel = null;
+    let socket = null;
+    let stream = null;
+    let audioContext = null;
+    let source = null;
+    let processor = null;
+    let setupComplete = false;
+    let transcript = "";
+    let transcriptTimer = null;
+
+    const stopResources = () => {
+      clearTimeout(transcriptTimer);
+      if (processor) { processor.onaudioprocess = null; try { processor.disconnect(); } catch {} }
+      if (source) { try { source.disconnect(); } catch {} }
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      if (audioContext) audioContext.close().catch(() => {});
+      if (socket && socket.readyState < WebSocket.CLOSING) {
+        try { socket.close(); } catch {}
+      }
+    };
+    const finish = result => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeoutTimer);
+      stopResources();
+      ui.mic(false);
+      if (cancelActiveListening === cancel) cancelActiveListening = null;
+      resolve(result);
+    };
+    const fail = () => finish({ error: "live-failed" });
+    const finishTranscript = () => {
+      clearTimeout(transcriptTimer);
+      transcriptTimer = setTimeout(() => {
+        if (transcript) finish({ text: transcript, alternatives: [] });
+      }, LIVE_STT_TRANSCRIPT_SETTLE_MS);
+    };
+    const startMicrophone = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        });
+        if (done) { stream.getTracks().forEach(track => track.stop()); return; }
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return fail();
+        audioContext = new AudioContextClass({ sampleRate: LIVE_STT_SAMPLE_RATE });
+        await audioContext.resume();
+        if (done) return;
+        if (!audioContext.createScriptProcessor) return fail();
+        source = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(2048, 1, 1);
+        processor.onaudioprocess = event => {
+          const output = event.outputBuffer.getChannelData(0);
+          output.fill(0);
+          if (done || !setupComplete || socket.readyState !== WebSocket.OPEN) return;
+          const pcm = floatAudioToPcm16(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
+          socket.send(JSON.stringify({
+            realtimeInput: { audio: { data: audioBufferToBase64(pcm), mimeType: "audio/pcm;rate=16000" } },
+          }));
+        };
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        ui.mic(true);
+      } catch (e) {
+        if (!done) fail();
+      }
+    };
+
+    const timeoutTimer = setTimeout(() => finish({ error: "timeout" }), timeoutMs || 12000);
+    cancel = reason => finish({ error: reason });
+    cancelActiveListening = cancel;
+
+    try {
+      socket = new WebSocket(LIVE_STT_ENDPOINT + encodeURIComponent(LS.geminiKey));
+    } catch (e) {
+      fail();
+      return;
+    }
+    socket.onopen = () => {
+      if (!done) socket.send(JSON.stringify(buildGeminiLiveSetup()));
+    };
+    socket.onmessage = event => {
+      if (done) return;
+      let message;
+      try { message = JSON.parse(event.data); } catch { fail(); return; }
+      if (message.setupComplete) {
+        setupComplete = true;
+        startMicrophone();
+        return;
+      }
+      const text = message.serverContent && message.serverContent.inputTranscription
+        && message.serverContent.inputTranscription.text;
+      if (typeof text === "string" && text.trim()) {
+        transcript = text.trim();
+        finishTranscript();
+      }
+    };
+    socket.onerror = () => { if (!done) fail(); };
+    socket.onclose = () => {
+      if (!done && !transcript) fail();
+    };
+  });
+}
+
+async function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
+  if (!LS.geminiKey) return listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech);
+  const result = await listenWithGeminiLive(timeoutMs);
+  if (result.error === "paused" || result.error === "cancelled" || result.error === "timeout") return result;
+  if (result.text) return result;
+  ui.sub("Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다.");
+  return listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech);
 }
 
 /* ==================== AI API (Claude / Gemini) ==================== */

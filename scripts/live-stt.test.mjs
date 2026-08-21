@@ -1,0 +1,138 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
+
+const app = fs.readFileSync(new URL("../web/app.js", import.meta.url), "utf8");
+const start = app.indexOf("/* ==================== 음성: STT ==================== */");
+const end = app.indexOf("/* ==================== AI API", start);
+assert.ok(start >= 0 && end > start, "STT 구간을 찾을 수 있어야 합니다.");
+
+const tracks = [];
+const uiEvents = [];
+const sockets = [];
+let processor;
+let audioContext;
+
+class MockSocket {
+  static OPEN = 1;
+  static CLOSING = 2;
+
+  constructor(url) {
+    this.url = url;
+    this.readyState = MockSocket.OPEN;
+    this.sent = [];
+    sockets.push(this);
+  }
+
+  send(message) { this.sent.push(JSON.parse(message)); }
+
+  close() {
+    this.readyState = 3;
+    this.closed = true;
+    if (this.onclose) this.onclose();
+  }
+}
+
+class MockRecognition {
+  constructor() { this.abortCount = 0; }
+
+  start() {
+    queueMicrotask(() => this.onresult({
+      resultIndex: 0,
+      results: [{ isFinal: true, 0: { transcript: "browser fallback" } }],
+    }));
+  }
+
+  abort() { this.abortCount++; }
+}
+
+class MockAudioContext {
+  constructor() {
+    this.sampleRate = 48000;
+    this.destination = {};
+    audioContext = this;
+  }
+
+  resume() { return Promise.resolve(); }
+  close() { this.closed = true; return Promise.resolve(); }
+  createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+  createScriptProcessor() {
+    processor = { connect() {}, disconnect() {}, onaudioprocess: null };
+    return processor;
+  }
+}
+
+const stream = {
+  getTracks() {
+    return [{ stop() { tracks.push("stopped"); } }];
+  },
+};
+const context = vm.createContext({
+  window: {
+    SpeechRecognition: MockRecognition,
+    WebSocket: MockSocket,
+    AudioContext: MockAudioContext,
+  },
+  WebSocket: MockSocket,
+  navigator: { mediaDevices: { getUserMedia: () => Promise.resolve(stream) } },
+  btoa: value => Buffer.from(value, "binary").toString("base64"),
+  setTimeout,
+  clearTimeout,
+  queueMicrotask,
+  console,
+});
+
+vm.runInContext(`
+  const LS = { geminiKey: "test-key" };
+  const ui = {
+    mic: value => globalThis.__uiEvents.push(["mic", value]),
+    sub: value => globalThis.__uiEvents.push(["sub", value]),
+  };
+  const ANSWER_SPEECH_PAUSE_MS = 1;
+  ${app.slice(start, end)}
+  globalThis.__stt = { buildGeminiLiveSetup, listenWithGeminiLive, listen, stopActiveListening };
+`, Object.assign(context, { __uiEvents: uiEvents }));
+
+const setup = context.__stt.buildGeminiLiveSetup();
+assert.equal(setup.setup.realtimeInputConfig.automaticActivityDetection.silenceDurationMs, 3500);
+assert.equal(setup.setup.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity, "END_SENSITIVITY_LOW");
+assert.equal(JSON.stringify(setup.setup.inputAudioTranscription), "{}");
+
+const liveResult = context.__stt.listenWithGeminiLive(2000);
+const liveSocket = sockets.at(-1);
+liveSocket.onopen();
+assert.equal(liveSocket.sent[0].setup.model, "models/gemini-3.1-flash-live-preview");
+liveSocket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
+await new Promise(resolve => setImmediate(resolve));
+processor.onaudioprocess({
+  inputBuffer: { getChannelData: () => new Float32Array(2048).fill(0.25) },
+  outputBuffer: { getChannelData: () => new Float32Array(2048) },
+});
+assert.equal(liveSocket.sent[1].realtimeInput.audio.mimeType, "audio/pcm;rate=16000");
+let advancedBeforeServerTurnEnds = false;
+liveResult.then(() => { advancedBeforeServerTurnEnds = true; });
+await new Promise(resolve => setTimeout(resolve, 500));
+assert.equal(advancedBeforeServerTurnEnds, false, "0.5초의 말 사이 휴지는 앱에서 발화를 끝내면 안 됩니다.");
+liveSocket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: "I am Bojae" } } }) });
+assert.equal(JSON.stringify(await liveResult), JSON.stringify({ text: "I am Bojae", alternatives: [] }));
+assert.ok(tracks.length > 0 && audioContext.closed && liveSocket.closed, "완료 시 Live 자원을 닫아야 합니다.");
+
+const cancelled = context.__stt.listenWithGeminiLive(2000);
+const cancelSocket = sockets.at(-1);
+cancelSocket.onopen();
+cancelSocket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
+await new Promise(resolve => setImmediate(resolve));
+context.__stt.stopActiveListening("paused");
+assert.equal(JSON.stringify(await cancelled), JSON.stringify({ error: "paused" }));
+assert.ok(cancelSocket.closed, "일시정지는 Live WebSocket을 즉시 닫아야 합니다.");
+
+const fallback = context.__stt.listen("en-US", 2000, true);
+const fallbackSocket = sockets.at(-1);
+fallbackSocket.onerror();
+assert.equal(JSON.stringify(await fallback), JSON.stringify({ text: "browser fallback", alternatives: [] }));
+assert.ok(uiEvents.some(([, text]) => text === "Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다."));
+
+assert.match(app, /r\.continuous = false;/);
+assert.match(app, /r\.interimResults = false;/);
+assert.match(app, /r\.maxAlternatives = 1;/);
+console.log("Live STT mock tests passed");
