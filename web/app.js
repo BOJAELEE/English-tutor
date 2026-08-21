@@ -295,7 +295,8 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     let recognizer = null;
     let restartTimer = null;
     let finalTimer = null;
-    let finalText = "";
+    const finalSegments = [];
+    let hasRecognitionResult = false;
     let cancel = null;
     const deadline = Date.now() + (timeoutMs || 12000);
     const finish = result => {
@@ -312,12 +313,16 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     };
     cancel = reason => finish({ error: reason });
     cancelActiveListening = cancel;
-    const finishAfterFinalResult = () => {
+    const finalTranscript = () => finalSegments.filter(Boolean).join(" ").trim();
+    const finishAfterLatestResult = () => {
       clearTimeout(finalTimer);
-      finalTimer = setTimeout(() => finish({ text: finalText, alternatives: [] }), ANSWER_SPEECH_PAUSE_MS);
+      finalTimer = setTimeout(() => {
+        const text = finalTranscript();
+        finish(text ? { text, alternatives: [] } : { error: "no-final" });
+      }, ANSWER_SPEECH_PAUSE_MS);
     };
     const restartWhileWaiting = () => {
-      if (!keepListeningOnNoSpeech || done || finalText || Date.now() >= deadline) return false;
+      if (!keepListeningOnNoSpeech || done || hasRecognitionResult || Date.now() >= deadline) return false;
       clearTimeout(restartTimer);
       restartTimer = setTimeout(startRecognizer, 0);
       return true;
@@ -330,24 +335,27 @@ function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       const r = new SR();
       recognizer = r;
       r.lang = lang;
-      r.continuous = false;
-      r.interimResults = false;
+      r.continuous = true;
+      r.interimResults = true;
       r.maxAlternatives = 1;
       r.onresult = e => {
         for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (!e.results[i].isFinal) continue;
-          finalText = e.results[i][0].transcript.trim();
-          if (finalText) finishAfterFinalResult();
+          hasRecognitionResult = true;
+          if (e.results[i].isFinal) finalSegments[i] = e.results[i][0].transcript.trim();
         }
+        // 임시 결과는 채점하지 않고, 사용자가 아직 말하는 중일 때만 종료 시간을 연장한다.
+        finishAfterLatestResult();
       };
       r.onerror = e => {
         if (done) return;
-        if (e.error === "no-speech" && restartWhileWaiting()) return;
+        if (e.error === "no-speech") {
+          if (hasRecognitionResult || restartWhileWaiting()) return;
+        }
         finish({ error: e.error });
       };
       r.onend = () => {
         if (done) return;
-        if (finalText) return;
+        if (hasRecognitionResult) return;
         if (restartWhileWaiting()) return;
         finish({ error: "no-speech" });
       };
