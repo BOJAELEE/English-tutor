@@ -10,6 +10,7 @@ assert.ok(start >= 0 && end > start, "STT 구간을 찾을 수 있어야 합니�
 const tracks = [];
 const uiEvents = [];
 const sockets = [];
+const warnings = [];
 let processor;
 let audioContext;
 
@@ -79,7 +80,7 @@ const context = vm.createContext({
   setTimeout,
   clearTimeout,
   queueMicrotask,
-  console,
+  console: { warn: (...args) => warnings.push(args.join(" ")), log() {} },
 });
 
 vm.runInContext(`
@@ -90,7 +91,7 @@ vm.runInContext(`
   };
   const ANSWER_SPEECH_PAUSE_MS = 1;
   ${app.slice(start, end)}
-  globalThis.__stt = { buildGeminiLiveSetup, listenWithGeminiLive, listen, stopActiveListening };
+  globalThis.__stt = { buildGeminiLiveSetup, geminiLiveFallbackMessage, listenWithGeminiLive, listen, stopActiveListening };
 `, Object.assign(context, { __uiEvents: uiEvents }));
 
 const setup = context.__stt.buildGeminiLiveSetup();
@@ -130,7 +131,16 @@ const fallback = context.__stt.listen("en-US", 2000, true);
 const fallbackSocket = sockets.at(-1);
 fallbackSocket.onerror();
 assert.equal(JSON.stringify(await fallback), JSON.stringify({ text: "browser fallback", alternatives: [] }));
-assert.ok(uiEvents.some(([, text]) => text === "Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다."));
+assert.ok(uiEvents.some(([, text]) => text === "Gemini 연결에 실패해 브라우저 인식으로 전환합니다."));
+
+const serverFallback = context.__stt.listen("en-US", 2000, true);
+const serverSocket = sockets.at(-1);
+serverSocket.onopen();
+serverSocket.onmessage({ data: JSON.stringify({ error: { status: "PERMISSION_DENIED" } }) });
+assert.equal(JSON.stringify(await serverFallback), JSON.stringify({ text: "browser fallback", alternatives: [] }));
+assert.ok(warnings.some(message => message.includes("server:PERMISSION_DENIED")));
+assert.equal(context.__stt.geminiLiveFallbackMessage("server:RESOURCE_EXHAUSTED"), "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.");
+assert.equal(context.__stt.geminiLiveFallbackMessage("microphone:NotAllowedError"), "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.");
 
 assert.match(app, /r\.continuous = false;/);
 assert.match(app, /r\.interimResults = false;/);

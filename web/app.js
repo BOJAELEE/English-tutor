@@ -286,6 +286,7 @@ const LIVE_STT_MODEL = "gemini-3.1-flash-live-preview";
 const LIVE_STT_SAMPLE_RATE = 16000;
 const LIVE_STT_SILENCE_DURATION_MS = 3500;
 const LIVE_STT_TRANSCRIPT_SETTLE_MS = 350;
+const LIVE_STT_START_TIMEOUT_MS = 8000;
 const LIVE_STT_ENDPOINT = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=";
 let cancelActiveListening = null;
 
@@ -331,6 +332,22 @@ function audioBufferToBase64(buffer) {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
+}
+
+function geminiLiveFallbackMessage(reason) {
+  if (reason === "live-unavailable" || /^server:(PERMISSION_DENIED|UNAUTHENTICATED|INVALID_ARGUMENT)/.test(reason || "")) {
+    return "Gemini API 키 또는 Live 권한 문제로 브라우저 인식으로 전환합니다.";
+  }
+  if (/^server:(RESOURCE_EXHAUSTED|FAILED_PRECONDITION)/.test(reason || "")) {
+    return "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.";
+  }
+  if (/^microphone:|^audio-/.test(reason || "")) {
+    return "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.";
+  }
+  if (reason === "startup-timeout" || /^websocket-/.test(reason || "")) {
+    return "Gemini 연결에 실패해 브라우저 인식으로 전환합니다.";
+  }
+  return "Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다.";
 }
 
 function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
@@ -420,11 +437,14 @@ function listenWithGeminiLive(timeoutMs) {
     let source = null;
     let processor = null;
     let setupComplete = false;
+    let microphoneStarting = false;
     let transcript = "";
     let transcriptTimer = null;
+    let startTimer = null;
 
     const stopResources = () => {
       clearTimeout(transcriptTimer);
+      clearTimeout(startTimer);
       if (processor) { processor.onaudioprocess = null; try { processor.disconnect(); } catch {} }
       if (source) { try { source.disconnect(); } catch {} }
       if (stream) stream.getTracks().forEach(track => track.stop());
@@ -442,7 +462,10 @@ function listenWithGeminiLive(timeoutMs) {
       if (cancelActiveListening === cancel) cancelActiveListening = null;
       resolve(result);
     };
-    const fail = () => finish({ error: "live-failed" });
+    const fail = reason => {
+      console.warn("Gemini Live STT 실패:", reason);
+      finish({ error: "live-failed", liveReason: reason });
+    };
     const finishTranscript = () => {
       clearTimeout(transcriptTimer);
       transcriptTimer = setTimeout(() => {
@@ -450,17 +473,20 @@ function listenWithGeminiLive(timeoutMs) {
       }, LIVE_STT_TRANSCRIPT_SETTLE_MS);
     };
     const startMicrophone = async () => {
+      if (microphoneStarting) return;
+      microphoneStarting = true;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
         if (done) { stream.getTracks().forEach(track => track.stop()); return; }
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return fail();
+        if (!AudioContextClass) return fail("audio-context-unsupported");
         audioContext = new AudioContextClass({ sampleRate: LIVE_STT_SAMPLE_RATE });
         await audioContext.resume();
         if (done) return;
-        if (!audioContext.createScriptProcessor) return fail();
+        if (audioContext.state && audioContext.state !== "running") return fail("audio-context-not-running");
+        if (!audioContext.createScriptProcessor) return fail("audio-processor-unsupported");
         source = audioContext.createMediaStreamSource(stream);
         processor = audioContext.createScriptProcessor(2048, 1, 1);
         processor.onaudioprocess = event => {
@@ -468,35 +494,48 @@ function listenWithGeminiLive(timeoutMs) {
           output.fill(0);
           if (done || !setupComplete || socket.readyState !== WebSocket.OPEN) return;
           const pcm = floatAudioToPcm16(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
-          socket.send(JSON.stringify({
-            realtimeInput: { audio: { data: audioBufferToBase64(pcm), mimeType: "audio/pcm;rate=16000" } },
-          }));
+          try {
+            socket.send(JSON.stringify({
+              realtimeInput: { audio: { data: audioBufferToBase64(pcm), mimeType: "audio/pcm;rate=16000" } },
+            }));
+          } catch (e) {
+            fail("audio-send");
+          }
         };
         source.connect(processor);
         processor.connect(audioContext.destination);
+        clearTimeout(startTimer);
         ui.mic(true);
       } catch (e) {
-        if (!done) fail();
+        if (!done) fail("microphone:" + (e && e.name ? e.name : "start-failed"));
       }
     };
 
     const timeoutTimer = setTimeout(() => finish({ error: "timeout" }), timeoutMs || 12000);
+    startTimer = setTimeout(() => fail("startup-timeout"), LIVE_STT_START_TIMEOUT_MS);
     cancel = reason => finish({ error: reason });
     cancelActiveListening = cancel;
 
     try {
       socket = new WebSocket(LIVE_STT_ENDPOINT + encodeURIComponent(LS.geminiKey));
     } catch (e) {
-      fail();
+      fail("websocket-create");
       return;
     }
     socket.onopen = () => {
-      if (!done) socket.send(JSON.stringify(buildGeminiLiveSetup()));
+      if (done) return;
+      try { socket.send(JSON.stringify(buildGeminiLiveSetup())); }
+      catch (e) { fail("setup-send"); }
     };
     socket.onmessage = event => {
       if (done) return;
       let message;
-      try { message = JSON.parse(event.data); } catch { fail(); return; }
+      try { message = JSON.parse(event.data); } catch { fail("invalid-server-message"); return; }
+      if (message.error) {
+        const code = message.error.status || message.error.code || "server-error";
+        fail("server:" + code);
+        return;
+      }
       if (message.setupComplete) {
         setupComplete = true;
         startMicrophone();
@@ -509,9 +548,9 @@ function listenWithGeminiLive(timeoutMs) {
         finishTranscript();
       }
     };
-    socket.onerror = () => { if (!done) fail(); };
-    socket.onclose = () => {
-      if (!done && !transcript) fail();
+    socket.onerror = () => { if (!done) fail("websocket-error"); };
+    socket.onclose = event => {
+      if (!done && !transcript) fail("websocket-close:" + (event.code || "unknown"));
     };
   });
 }
@@ -521,7 +560,7 @@ async function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   const result = await listenWithGeminiLive(timeoutMs);
   if (result.error === "paused" || result.error === "cancelled" || result.error === "timeout") return result;
   if (result.text) return result;
-  ui.sub("Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다.");
+  ui.sub(geminiLiveFallbackMessage(result.liveReason));
   return listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech);
 }
 
