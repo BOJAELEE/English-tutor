@@ -284,6 +284,7 @@ async function speak(text, lang) {
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const LIVE_STT_MODEL = "gemini-3.1-flash-live-preview";
 const LIVE_STT_SAMPLE_RATE = 16000;
+const LIVE_STT_FRAME_SAMPLES = 512;
 const LIVE_STT_SILENCE_DURATION_MS = 3500;
 const LIVE_STT_TRANSCRIPT_SETTLE_MS = 350;
 const LIVE_STT_START_TIMEOUT_MS = 8000;
@@ -354,6 +355,9 @@ function geminiLiveFallbackMessage(reason) {
   }
   if (closeCode && closeCode[1] === "1006") {
     return "Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다.";
+  }
+  if (closeCode && closeCode[1] === "1007") {
+    return "Gemini Live 오디오 데이터를 처리하지 못했습니다 (코드 1007). 브라우저 인식으로 전환합니다.";
   }
   if (closeCode) {
     return "Gemini Live 연결이 종료됐습니다 (코드 " + closeCode[1] + "). 브라우저 인식으로 전환합니다.";
@@ -456,6 +460,7 @@ function listenWithGeminiLive(timeoutMs) {
     let transcriptTimer = null;
     let startTimer = null;
     let socketErrorTimer = null;
+    let pendingPcm = new Int16Array(0);
 
     const stopResources = () => {
       clearTimeout(transcriptTimer);
@@ -493,7 +498,13 @@ function listenWithGeminiLive(timeoutMs) {
       microphoneStarting = true;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          audio: {
+            channelCount: { ideal: 1 },
+            sampleRate: { ideal: LIVE_STT_SAMPLE_RATE },
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
         });
         if (done) { stream.getTracks().forEach(track => track.stop()); return; }
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -509,11 +520,20 @@ function listenWithGeminiLive(timeoutMs) {
           const output = event.outputBuffer.getChannelData(0);
           output.fill(0);
           if (done || !setupComplete || socket.readyState !== WebSocket.OPEN) return;
-          const pcm = floatAudioToPcm16(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
+          const pcm = new Int16Array(floatAudioToPcm16(event.inputBuffer.getChannelData(0), audioContext.sampleRate));
+          const merged = new Int16Array(pendingPcm.length + pcm.length);
+          merged.set(pendingPcm);
+          merged.set(pcm, pendingPcm.length);
+          pendingPcm = merged;
           try {
-            socket.send(JSON.stringify({
-              realtimeInput: { audio: { data: audioBufferToBase64(pcm), mimeType: "audio/pcm;rate=16000" } },
-            }));
+            // Live API 권장 범위(20~40ms)에 맞춰 언제나 32ms PCM 단위로 보낸다.
+            while (pendingPcm.length >= LIVE_STT_FRAME_SAMPLES) {
+              const frame = pendingPcm.slice(0, LIVE_STT_FRAME_SAMPLES);
+              pendingPcm = pendingPcm.slice(LIVE_STT_FRAME_SAMPLES);
+              socket.send(JSON.stringify({
+                realtimeInput: { audio: { data: audioBufferToBase64(frame.buffer), mimeType: "audio/pcm;rate=16000" } },
+              }));
+            }
           } catch (e) {
             fail("audio-send");
           }

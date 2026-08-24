@@ -110,6 +110,7 @@ processor.onaudioprocess({
   outputBuffer: { getChannelData: () => new Float32Array(2048) },
 });
 assert.equal(liveSocket.sent[1].realtimeInput.audio.mimeType, "audio/pcm;rate=16000");
+assert.equal(Buffer.from(liveSocket.sent[1].realtimeInput.audio.data, "base64").byteLength, 1024, "Live에는 16kHz 32ms PCM 단위만 전송해야 합니다.");
 let advancedBeforeServerTurnEnds = false;
 liveResult.then(() => { advancedBeforeServerTurnEnds = true; });
 await new Promise(resolve => setTimeout(resolve, 500));
@@ -143,6 +144,7 @@ assert.ok(warnings.some(message => message.includes("server:PERMISSION_DENIED"))
 assert.equal(context.__stt.geminiLiveFallbackMessage("server:RESOURCE_EXHAUSTED"), "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.");
 assert.equal(context.__stt.geminiLiveFallbackMessage("microphone:NotAllowedError"), "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.");
 assert.equal(context.__stt.geminiLiveFallbackMessage("websocket-close:1008"), "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.");
+assert.equal(context.__stt.geminiLiveFallbackMessage("websocket-close:1007"), "Gemini Live 오디오 데이터를 처리하지 못했습니다 (코드 1007). 브라우저 인식으로 전환합니다.");
 
 assert.match(app, /r\.continuous = false;/);
 assert.match(app, /r\.interimResults = false;/);
