@@ -287,6 +287,7 @@ const LIVE_STT_SAMPLE_RATE = 16000;
 const LIVE_STT_SILENCE_DURATION_MS = 3500;
 const LIVE_STT_TRANSCRIPT_SETTLE_MS = 350;
 const LIVE_STT_START_TIMEOUT_MS = 8000;
+const LIVE_STT_SOCKET_ERROR_GRACE_MS = 500;
 const LIVE_STT_ENDPOINT = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=";
 let cancelActiveListening = null;
 
@@ -343,6 +344,19 @@ function geminiLiveFallbackMessage(reason) {
   }
   if (/^microphone:|^audio-/.test(reason || "")) {
     return "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.";
+  }
+  const closeCode = /^websocket-close:(\d+)/.exec(reason || "");
+  if (closeCode && closeCode[1] === "1008") {
+    return "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.";
+  }
+  if (closeCode && closeCode[1] === "1011") {
+    return "Gemini Live 할당량 문제입니다 (코드 1011). 브라우저 인식으로 전환합니다.";
+  }
+  if (closeCode && closeCode[1] === "1006") {
+    return "Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다.";
+  }
+  if (closeCode) {
+    return "Gemini Live 연결이 종료됐습니다 (코드 " + closeCode[1] + "). 브라우저 인식으로 전환합니다.";
   }
   if (reason === "startup-timeout" || /^websocket-/.test(reason || "")) {
     return "Gemini 연결에 실패해 브라우저 인식으로 전환합니다.";
@@ -441,10 +455,12 @@ function listenWithGeminiLive(timeoutMs) {
     let transcript = "";
     let transcriptTimer = null;
     let startTimer = null;
+    let socketErrorTimer = null;
 
     const stopResources = () => {
       clearTimeout(transcriptTimer);
       clearTimeout(startTimer);
+      clearTimeout(socketErrorTimer);
       if (processor) { processor.onaudioprocess = null; try { processor.disconnect(); } catch {} }
       if (source) { try { source.disconnect(); } catch {} }
       if (stream) stream.getTracks().forEach(track => track.stop());
@@ -548,9 +564,18 @@ function listenWithGeminiLive(timeoutMs) {
         finishTranscript();
       }
     };
-    socket.onerror = () => { if (!done) fail("websocket-error"); };
+    socket.onerror = () => {
+      if (done || socketErrorTimer) return;
+      // 브라우저는 error 뒤 close 이벤트에만 종료 코드를 주므로 잠시 기다린다.
+      socketErrorTimer = setTimeout(() => fail("websocket-error"), LIVE_STT_SOCKET_ERROR_GRACE_MS);
+    };
     socket.onclose = event => {
-      if (!done && !transcript) fail("websocket-close:" + (event.code || "unknown"));
+      clearTimeout(socketErrorTimer);
+      if (!done && !transcript) {
+        const code = event && event.code ? event.code : "unknown";
+        const reason = event && event.reason ? ":" + event.reason : "";
+        fail("websocket-close:" + code + reason);
+      }
     };
   });
 }

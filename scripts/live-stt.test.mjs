@@ -130,8 +130,9 @@ assert.ok(cancelSocket.closed, "일시정지는 Live WebSocket을 즉시 닫아�
 const fallback = context.__stt.listen("en-US", 2000, true);
 const fallbackSocket = sockets.at(-1);
 fallbackSocket.onerror();
+fallbackSocket.onclose({ code: 1006 });
 assert.equal(JSON.stringify(await fallback), JSON.stringify({ text: "browser fallback", alternatives: [] }));
-assert.ok(uiEvents.some(([, text]) => text === "Gemini 연결에 실패해 브라우저 인식으로 전환합니다."));
+assert.ok(uiEvents.some(([, text]) => text === "Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다."));
 
 const serverFallback = context.__stt.listen("en-US", 2000, true);
 const serverSocket = sockets.at(-1);
@@ -141,6 +142,7 @@ assert.equal(JSON.stringify(await serverFallback), JSON.stringify({ text: "brows
 assert.ok(warnings.some(message => message.includes("server:PERMISSION_DENIED")));
 assert.equal(context.__stt.geminiLiveFallbackMessage("server:RESOURCE_EXHAUSTED"), "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.");
 assert.equal(context.__stt.geminiLiveFallbackMessage("microphone:NotAllowedError"), "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.");
+assert.equal(context.__stt.geminiLiveFallbackMessage("websocket-close:1008"), "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.");
 
 assert.match(app, /r\.continuous = false;/);
 assert.match(app, /r\.interimResults = false;/);
