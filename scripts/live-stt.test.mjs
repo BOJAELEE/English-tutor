@@ -133,7 +133,7 @@ const fallbackSocket = sockets.at(-1);
 fallbackSocket.onerror();
 fallbackSocket.onclose({ code: 1006 });
 assert.equal(JSON.stringify(await fallback), JSON.stringify({ text: "browser fallback", alternatives: [] }));
-assert.ok(uiEvents.some(([, text]) => text === "Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다."));
+assert.ok(uiEvents.some(([, text]) => typeof text === "string" && text.startsWith("Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다.") && text.includes("진단 코드: LIVE_1006")));
 
 const serverFallback = context.__stt.listen("en-US", 2000, true);
 const serverSocket = sockets.at(-1);
@@ -145,6 +145,10 @@ assert.equal(context.__stt.geminiLiveFallbackMessage("server:RESOURCE_EXHAUSTED"
 assert.equal(context.__stt.geminiLiveFallbackMessage("microphone:NotAllowedError"), "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.");
 assert.equal(context.__stt.geminiLiveFallbackMessage("websocket-close:1008"), "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.");
 assert.equal(context.__stt.geminiLiveFallbackMessage("websocket-close:1007"), "Gemini Live 오디오 데이터를 처리하지 못했습니다 (코드 1007). 브라우저 인식으로 전환합니다.");
+assert.match(
+  context.__stt.geminiLiveFallbackMessage("websocket-close:1007:invalid audio payload", { phase: "PCM 전송", trackRate: 48000, trackChannels: 1, contextRate: 16000, framesSent: 2 }),
+  /진단 코드: LIVE_1007\n실패 단계: PCM 전송\n모델: gemini-2\.5-flash-native-audio-latest\n실제 입력: 48000Hz \/ 1채널 · 컨텍스트 16000Hz\n전송: PCM 16kHz \/ 16비트 \/ 모노 · 2프레임\n서버 사유: invalid audio payload/
+);
 
 assert.match(app, /r\.continuous = false;/);
 assert.match(app, /r\.interimResults = false;/);

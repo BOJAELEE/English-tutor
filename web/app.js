@@ -336,36 +336,44 @@ function audioBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-function geminiLiveFallbackMessage(reason) {
+function geminiLiveFallbackMessage(reason, diagnostics) {
+  let message;
   if (reason === "live-unavailable" || /^server:(PERMISSION_DENIED|UNAUTHENTICATED|INVALID_ARGUMENT)/.test(reason || "")) {
-    return "Gemini API 키 또는 Live 권한 문제로 브라우저 인식으로 전환합니다.";
+    message = "Gemini API 키 또는 Live 권한 문제로 브라우저 인식으로 전환합니다.";
+  } else if (/^server:(RESOURCE_EXHAUSTED|FAILED_PRECONDITION)/.test(reason || "")) {
+    message = "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.";
+  } else if (/^microphone:|^audio-/.test(reason || "")) {
+    message = "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.";
+  } else {
+    const closeCode = /^websocket-close:(\d+)/.exec(reason || "");
+    if (closeCode && closeCode[1] === "1008") {
+      message = "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.";
+    } else if (closeCode && closeCode[1] === "1011") {
+      message = "Gemini Live 할당량 문제입니다 (코드 1011). 브라우저 인식으로 전환합니다.";
+    } else if (closeCode && closeCode[1] === "1006") {
+      message = "Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다.";
+    } else if (closeCode && closeCode[1] === "1007") {
+      message = "Gemini Live 오디오 데이터를 처리하지 못했습니다 (코드 1007). 브라우저 인식으로 전환합니다.";
+    } else if (closeCode) {
+      message = "Gemini Live 연결이 종료됐습니다 (코드 " + closeCode[1] + "). 브라우저 인식으로 전환합니다.";
+    } else if (reason === "startup-timeout" || /^websocket-/.test(reason || "")) {
+      message = "Gemini 연결에 실패해 브라우저 인식으로 전환합니다.";
+    } else {
+      message = "Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다.";
+    }
   }
-  if (/^server:(RESOURCE_EXHAUSTED|FAILED_PRECONDITION)/.test(reason || "")) {
-    return "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.";
-  }
-  if (/^microphone:|^audio-/.test(reason || "")) {
-    return "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.";
-  }
-  const closeCode = /^websocket-close:(\d+)/.exec(reason || "");
-  if (closeCode && closeCode[1] === "1008") {
-    return "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.";
-  }
-  if (closeCode && closeCode[1] === "1011") {
-    return "Gemini Live 할당량 문제입니다 (코드 1011). 브라우저 인식으로 전환합니다.";
-  }
-  if (closeCode && closeCode[1] === "1006") {
-    return "Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다.";
-  }
-  if (closeCode && closeCode[1] === "1007") {
-    return "Gemini Live 오디오 데이터를 처리하지 못했습니다 (코드 1007). 브라우저 인식으로 전환합니다.";
-  }
-  if (closeCode) {
-    return "Gemini Live 연결이 종료됐습니다 (코드 " + closeCode[1] + "). 브라우저 인식으로 전환합니다.";
-  }
-  if (reason === "startup-timeout" || /^websocket-/.test(reason || "")) {
-    return "Gemini 연결에 실패해 브라우저 인식으로 전환합니다.";
-  }
-  return "Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다.";
+  if (!diagnostics) return message;
+
+  const close = /^websocket-close:(\d+)(?::([\s\S]*))?$/.exec(reason || "");
+  const serverReason = close && close[2] ? close[2].replace(/\s+/g, " ").slice(0, 180) : "제공되지 않음";
+  const rate = diagnostics.contextRate ? diagnostics.contextRate + "Hz" : "확인 전";
+  const track = diagnostics.trackRate ? diagnostics.trackRate + "Hz / " + (diagnostics.trackChannels || "?") + "채널" : "확인 전";
+  return message + "\n\n진단 코드: LIVE_" + (close ? close[1] : "LOCAL")
+    + "\n실패 단계: " + diagnostics.phase
+    + "\n모델: " + LIVE_STT_MODEL
+    + "\n실제 입력: " + track + " · 컨텍스트 " + rate
+    + "\n전송: PCM 16kHz / 16비트 / 모노 · " + diagnostics.framesSent + "프레임"
+    + "\n서버 사유: " + serverReason;
 }
 
 function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
@@ -461,6 +469,7 @@ function listenWithGeminiLive(timeoutMs) {
     let startTimer = null;
     let socketErrorTimer = null;
     let pendingPcm = new Int16Array(0);
+    const diagnostics = { phase: "웹소켓 연결", trackRate: 0, trackChannels: 0, contextRate: 0, framesSent: 0 };
 
     const stopResources = () => {
       clearTimeout(transcriptTimer);
@@ -485,7 +494,7 @@ function listenWithGeminiLive(timeoutMs) {
     };
     const fail = reason => {
       console.warn("Gemini Live STT 실패:", reason);
-      finish({ error: "live-failed", liveReason: reason });
+      finish({ error: "live-failed", liveReason: reason, liveDiagnostics: { ...diagnostics } });
     };
     const finishTranscript = () => {
       clearTimeout(transcriptTimer);
@@ -507,12 +516,18 @@ function listenWithGeminiLive(timeoutMs) {
           },
         });
         if (done) { stream.getTracks().forEach(track => track.stop()); return; }
+        const track = stream.getAudioTracks && stream.getAudioTracks()[0];
+        const settings = track && track.getSettings ? track.getSettings() : {};
+        diagnostics.trackRate = settings.sampleRate || 0;
+        diagnostics.trackChannels = settings.channelCount || 0;
+        diagnostics.phase = "마이크 연결";
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextClass) return fail("audio-context-unsupported");
         audioContext = new AudioContextClass({ sampleRate: LIVE_STT_SAMPLE_RATE });
         await audioContext.resume();
         if (done) return;
         if (audioContext.state && audioContext.state !== "running") return fail("audio-context-not-running");
+        diagnostics.contextRate = audioContext.sampleRate || 0;
         if (!audioContext.createScriptProcessor) return fail("audio-processor-unsupported");
         source = audioContext.createMediaStreamSource(stream);
         processor = audioContext.createScriptProcessor(2048, 1, 1);
@@ -533,6 +548,8 @@ function listenWithGeminiLive(timeoutMs) {
               socket.send(JSON.stringify({
                 realtimeInput: { audio: { data: audioBufferToBase64(frame.buffer), mimeType: "audio/pcm;rate=16000" } },
               }));
+              diagnostics.framesSent++;
+              diagnostics.phase = "PCM 전송";
             }
           } catch (e) {
             fail("audio-send");
@@ -560,7 +577,10 @@ function listenWithGeminiLive(timeoutMs) {
     }
     socket.onopen = () => {
       if (done) return;
-      try { socket.send(JSON.stringify(buildGeminiLiveSetup())); }
+      try {
+        socket.send(JSON.stringify(buildGeminiLiveSetup()));
+        diagnostics.phase = "Live 설정 확인";
+      }
       catch (e) { fail("setup-send"); }
     };
     socket.onmessage = event => {
@@ -574,6 +594,7 @@ function listenWithGeminiLive(timeoutMs) {
       }
       if (message.setupComplete) {
         setupComplete = true;
+        diagnostics.phase = "마이크 시작";
         startMicrophone();
         return;
       }
@@ -605,7 +626,7 @@ async function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   const result = await listenWithGeminiLive(timeoutMs);
   if (result.error === "paused" || result.error === "cancelled" || result.error === "timeout") return result;
   if (result.text) return result;
-  ui.sub(geminiLiveFallbackMessage(result.liveReason));
+  ui.sub(geminiLiveFallbackMessage(result.liveReason, result.liveDiagnostics));
   return listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech);
 }
 
