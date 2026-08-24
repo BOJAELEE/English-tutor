@@ -102,7 +102,7 @@ assert.equal(JSON.stringify(setup.setup.inputAudioTranscription), "{}");
 const liveResult = context.__stt.listenWithGeminiLive(2000);
 const liveSocket = sockets.at(-1);
 liveSocket.onopen();
-assert.equal(liveSocket.sent[0].setup.model, "models/gemini-3.1-flash-live-preview");
+assert.equal(liveSocket.sent[0].setup.model, "models/gemini-2.5-flash-native-audio-latest");
 liveSocket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
 await new Promise(resolve => setImmediate(resolve));
 processor.onaudioprocess({

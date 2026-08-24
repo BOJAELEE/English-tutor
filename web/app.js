@@ -282,7 +282,7 @@ async function speak(text, lang) {
 
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const LIVE_STT_MODEL = "gemini-3.1-flash-live-preview";
+const LIVE_STT_MODEL = "gemini-2.5-flash-native-audio-latest";
 const LIVE_STT_SAMPLE_RATE = 16000;
 const LIVE_STT_FRAME_SAMPLES = 512;
 const LIVE_STT_SILENCE_DURATION_MS = 3500;
