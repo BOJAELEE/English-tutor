@@ -98,6 +98,8 @@ const setup = context.__stt.buildGeminiLiveSetup();
 assert.equal(setup.setup.realtimeInputConfig.automaticActivityDetection.silenceDurationMs, 3500);
 assert.equal(setup.setup.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity, "END_SENSITIVITY_LOW");
 assert.equal(JSON.stringify(setup.setup.inputAudioTranscription), "{}");
+assert.equal(JSON.stringify(setup.setup.generationConfig.responseModalities), "[\"AUDIO\"]");
+assert.equal("responseModalities" in setup.setup, false, "Native Audio Live 모델은 응답 형식을 generationConfig 안에서 받아야 합니다.");
 
 const liveResult = context.__stt.listenWithGeminiLive(2000);
 const liveSocket = sockets.at(-1);

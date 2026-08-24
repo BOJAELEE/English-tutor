@@ -300,7 +300,7 @@ function buildGeminiLiveSetup() {
   return {
     setup: {
       model: "models/" + LIVE_STT_MODEL,
-      responseModalities: ["AUDIO"],
+      generationConfig: { responseModalities: ["AUDIO"] },
       inputAudioTranscription: {},
       realtimeInputConfig: {
         automaticActivityDetection: {
