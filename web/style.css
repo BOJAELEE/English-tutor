@@ -75,7 +75,7 @@ h1 { font-size: 24px; }
 .training-value { display: block; }
 .training-situation .training-label { color: #8eb8ff; }
 .training-target .training-label, .training-target .training-value { color: #6ee7a0; }
-#status-sub { font-size: 22px; line-height: 1.5; color: #6ee7a0; font-weight: 600; min-height: 34px; white-space: pre-line; }
+#status-sub { font-size: 22px; line-height: 1.5; color: #6ee7a0; font-weight: 600; min-height: 34px; }
 .conversation-review { max-height: 42vh; overflow-y: auto; text-align: left; }
 .conversation-review-title { font-size: 18px; font-weight: bold; margin-bottom: 12px; }
 .conversation-review-item { border-top: 1px solid #3a415e; padding: 12px 0; }

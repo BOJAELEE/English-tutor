@@ -282,98 +282,10 @@ async function speak(text, lang) {
 
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const LIVE_STT_MODEL = "gemini-2.5-flash-native-audio-latest";
-const LIVE_STT_SAMPLE_RATE = 16000;
-const LIVE_STT_FRAME_SAMPLES = 512;
-const LIVE_STT_SILENCE_DURATION_MS = 3500;
-const LIVE_STT_TRANSCRIPT_SETTLE_MS = 350;
-const LIVE_STT_START_TIMEOUT_MS = 8000;
-const LIVE_STT_SOCKET_ERROR_GRACE_MS = 500;
-const LIVE_STT_ENDPOINT = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=";
 let cancelActiveListening = null;
 
 function stopActiveListening(reason = "cancelled") {
   if (cancelActiveListening) cancelActiveListening(reason);
-}
-
-function buildGeminiLiveSetup() {
-  return {
-    setup: {
-      model: "models/" + LIVE_STT_MODEL,
-      generationConfig: { responseModalities: ["AUDIO"] },
-      inputAudioTranscription: {},
-      realtimeInputConfig: {
-        automaticActivityDetection: {
-          disabled: false,
-          endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
-          prefixPaddingMs: 300,
-          silenceDurationMs: LIVE_STT_SILENCE_DURATION_MS,
-        },
-      },
-    },
-  };
-}
-
-function floatAudioToPcm16(input, inputRate) {
-  const ratio = inputRate / LIVE_STT_SAMPLE_RATE;
-  const length = Math.max(1, Math.round(input.length / ratio));
-  const output = new Int16Array(length);
-  for (let i = 0; i < length; i++) {
-    const start = Math.floor(i * ratio);
-    const end = Math.min(input.length, Math.max(start + 1, Math.floor((i + 1) * ratio)));
-    let total = 0;
-    for (let j = start; j < end; j++) total += input[j];
-    const sample = Math.max(-1, Math.min(1, total / (end - start)));
-    output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-  }
-  return output.buffer;
-}
-
-function audioBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-function geminiLiveFallbackMessage(reason, diagnostics) {
-  let message;
-  if (reason === "live-unavailable" || /^server:(PERMISSION_DENIED|UNAUTHENTICATED|INVALID_ARGUMENT)/.test(reason || "")) {
-    message = "Gemini API 키 또는 Live 권한 문제로 브라우저 인식으로 전환합니다.";
-  } else if (/^server:(RESOURCE_EXHAUSTED|FAILED_PRECONDITION)/.test(reason || "")) {
-    message = "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.";
-  } else if (/^microphone:|^audio-/.test(reason || "")) {
-    message = "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.";
-  } else {
-    const closeCode = /^websocket-close:(\d+)/.exec(reason || "");
-    if (closeCode && closeCode[1] === "1008") {
-      message = "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.";
-    } else if (closeCode && closeCode[1] === "1011") {
-      message = "Gemini Live 할당량 문제입니다 (코드 1011). 브라우저 인식으로 전환합니다.";
-    } else if (closeCode && closeCode[1] === "1006") {
-      message = "Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다.";
-    } else if (closeCode && closeCode[1] === "1007") {
-      message = "Gemini Live 오디오 데이터를 처리하지 못했습니다 (코드 1007). 브라우저 인식으로 전환합니다.";
-    } else if (closeCode) {
-      message = "Gemini Live 연결이 종료됐습니다 (코드 " + closeCode[1] + "). 브라우저 인식으로 전환합니다.";
-    } else if (reason === "startup-timeout" || /^websocket-/.test(reason || "")) {
-      message = "Gemini 연결에 실패해 브라우저 인식으로 전환합니다.";
-    } else {
-      message = "Gemini 음성 인식에 실패해 브라우저 인식으로 전환합니다.";
-    }
-  }
-  if (!diagnostics) return message;
-
-  const close = /^websocket-close:(\d+)(?::([\s\S]*))?$/.exec(reason || "");
-  const serverReason = close && close[2] ? close[2].replace(/\s+/g, " ").slice(0, 180) : "제공되지 않음";
-  const rate = diagnostics.contextRate ? diagnostics.contextRate + "Hz" : "확인 전";
-  const track = diagnostics.trackRate ? diagnostics.trackRate + "Hz / " + (diagnostics.trackChannels || "?") + "채널" : "확인 전";
-  return message + "\n\n진단 코드: LIVE_" + (close ? close[1] : "LOCAL")
-    + "\n실패 단계: " + diagnostics.phase
-    + "\n모델: " + LIVE_STT_MODEL
-    + "\n실제 입력: " + track + " · 컨텍스트 " + rate
-    + "\n전송: PCM 16kHz / 16비트 / 모노 · " + diagnostics.framesSent + "프레임"
-    + "\n서버 사유: " + serverReason;
 }
 
 function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
@@ -382,16 +294,18 @@ function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     let done = false;
     let recognizer = null;
     let restartTimer = null;
-    let finalTimer = null;
-    let finalText = "";
+    let speechPauseTimer = null;
+    let firstSpeechTimer = null;
+    let heardActivity = false;
+    let lastActivityAt = 0;
+    const segments = [];
     let cancel = null;
-    const deadline = Date.now() + (timeoutMs || 12000);
     const finish = result => {
       if (!done) {
         done = true;
-        clearTimeout(timer);
+        clearTimeout(firstSpeechTimer);
         clearTimeout(restartTimer);
-        clearTimeout(finalTimer);
+        clearTimeout(speechPauseTimer);
         try { recognizer && recognizer.abort(); } catch {}
         ui.mic(false);
         if (cancelActiveListening === cancel) cancelActiveListening = null;
@@ -400,46 +314,58 @@ function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     };
     cancel = reason => finish({ error: reason });
     cancelActiveListening = cancel;
-    const finishAfterFinalResult = () => {
-      clearTimeout(finalTimer);
-      finalTimer = setTimeout(() => {
-        finish(finalText ? { text: finalText, alternatives: [] } : { error: "no-final" });
+    const finishAfterSpeechPause = () => {
+      clearTimeout(speechPauseTimer);
+      speechPauseTimer = setTimeout(() => {
+        finish(segments.length ? { text: segments.join(" "), alternatives: [] } : { error: "no-final" });
       }, ANSWER_SPEECH_PAUSE_MS);
     };
-    const restartWhileWaiting = () => {
-      if (!keepListeningOnNoSpeech || done || finalText || Date.now() >= deadline) return false;
-      clearTimeout(restartTimer);
-      restartTimer = setTimeout(startRecognizer, 0);
-      return true;
+    const noteActivity = () => {
+      heardActivity = true;
+      lastActivityAt = Date.now();
+      clearTimeout(firstSpeechTimer);
+      finishAfterSpeechPause();
     };
-    const timer = setTimeout(() => {
+    const restartRecognizer = () => {
+      if (done || restartTimer) return;
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        if (!done && (!heardActivity || Date.now() - lastActivityAt < ANSWER_SPEECH_PAUSE_MS)) startRecognizer();
+      }, 0);
+    };
+    firstSpeechTimer = setTimeout(() => {
       finish({ error: "timeout" });
     }, timeoutMs || 12000);
     const startRecognizer = () => {
       if (done) return;
       const r = new SR();
       recognizer = r;
+      const seenFinalIndexes = new Set();
       r.lang = lang;
       r.continuous = false;
-      r.interimResults = false;
+      r.interimResults = true;
       r.maxAlternatives = 1;
       r.onresult = e => {
+        if (done || r !== recognizer) return;
+        noteActivity();
         for (let i = e.resultIndex; i < e.results.length; i++) {
-          if (e.results[i].isFinal) finalText = e.results[i][0].transcript.trim();
+          if (e.results[i].isFinal && !seenFinalIndexes.has(i)) {
+            seenFinalIndexes.add(i);
+            const text = e.results[i][0].transcript.trim();
+            if (text) segments.push(text);
+          }
         }
-        if (finalText) finishAfterFinalResult();
       };
       r.onerror = e => {
-        if (done) return;
+        if (done || r !== recognizer) return;
         if (e.error === "no-speech") {
-          if (finalText || restartWhileWaiting()) return;
+          if (heardActivity || keepListeningOnNoSpeech) return restartRecognizer();
         }
         finish({ error: e.error });
       };
       r.onend = () => {
-        if (done) return;
-        if (finalText) return;
-        if (restartWhileWaiting()) return;
+        if (done || r !== recognizer) return;
+        if (heardActivity || keepListeningOnNoSpeech) return restartRecognizer();
         finish({ error: "no-speech" });
       };
       try { r.start(); } catch { finish({ error: "start-failed" }); }
@@ -449,184 +375,7 @@ function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
   });
 }
 
-function listenWithGeminiLive(timeoutMs) {
-  return new Promise(resolve => {
-    if (!LS.geminiKey || !window.WebSocket || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      return resolve({ error: "live-unavailable" });
-    }
-
-    let done = false;
-    let cancel = null;
-    let socket = null;
-    let stream = null;
-    let audioContext = null;
-    let source = null;
-    let processor = null;
-    let setupComplete = false;
-    let microphoneStarting = false;
-    let transcript = "";
-    let transcriptTimer = null;
-    let startTimer = null;
-    let socketErrorTimer = null;
-    let pendingPcm = new Int16Array(0);
-    const diagnostics = { phase: "웹소켓 연결", trackRate: 0, trackChannels: 0, contextRate: 0, framesSent: 0 };
-
-    const stopResources = () => {
-      clearTimeout(transcriptTimer);
-      clearTimeout(startTimer);
-      clearTimeout(socketErrorTimer);
-      if (processor) { processor.onaudioprocess = null; try { processor.disconnect(); } catch {} }
-      if (source) { try { source.disconnect(); } catch {} }
-      if (stream) stream.getTracks().forEach(track => track.stop());
-      if (audioContext) audioContext.close().catch(() => {});
-      if (socket && socket.readyState < WebSocket.CLOSING) {
-        try { socket.close(); } catch {}
-      }
-    };
-    const finish = result => {
-      if (done) return;
-      done = true;
-      clearTimeout(timeoutTimer);
-      stopResources();
-      ui.mic(false);
-      if (cancelActiveListening === cancel) cancelActiveListening = null;
-      resolve(result);
-    };
-    const fail = reason => {
-      console.warn("Gemini Live STT 실패:", reason);
-      finish({ error: "live-failed", liveReason: reason, liveDiagnostics: { ...diagnostics } });
-    };
-    const finishTranscript = () => {
-      clearTimeout(transcriptTimer);
-      transcriptTimer = setTimeout(() => {
-        if (transcript) finish({ text: transcript, alternatives: [] });
-      }, LIVE_STT_TRANSCRIPT_SETTLE_MS);
-    };
-    const startMicrophone = async () => {
-      if (microphoneStarting) return;
-      microphoneStarting = true;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: { ideal: 1 },
-            sampleRate: { ideal: LIVE_STT_SAMPLE_RATE },
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-        if (done) { stream.getTracks().forEach(track => track.stop()); return; }
-        const track = stream.getAudioTracks && stream.getAudioTracks()[0];
-        const settings = track && track.getSettings ? track.getSettings() : {};
-        diagnostics.trackRate = settings.sampleRate || 0;
-        diagnostics.trackChannels = settings.channelCount || 0;
-        diagnostics.phase = "마이크 연결";
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return fail("audio-context-unsupported");
-        audioContext = new AudioContextClass({ sampleRate: LIVE_STT_SAMPLE_RATE });
-        await audioContext.resume();
-        if (done) return;
-        if (audioContext.state && audioContext.state !== "running") return fail("audio-context-not-running");
-        diagnostics.contextRate = audioContext.sampleRate || 0;
-        if (!audioContext.createScriptProcessor) return fail("audio-processor-unsupported");
-        source = audioContext.createMediaStreamSource(stream);
-        processor = audioContext.createScriptProcessor(2048, 1, 1);
-        processor.onaudioprocess = event => {
-          const output = event.outputBuffer.getChannelData(0);
-          output.fill(0);
-          if (done || !setupComplete || socket.readyState !== WebSocket.OPEN) return;
-          const pcm = new Int16Array(floatAudioToPcm16(event.inputBuffer.getChannelData(0), audioContext.sampleRate));
-          const merged = new Int16Array(pendingPcm.length + pcm.length);
-          merged.set(pendingPcm);
-          merged.set(pcm, pendingPcm.length);
-          pendingPcm = merged;
-          try {
-            // Live API 권장 범위(20~40ms)에 맞춰 언제나 32ms PCM 단위로 보낸다.
-            while (pendingPcm.length >= LIVE_STT_FRAME_SAMPLES) {
-              const frame = pendingPcm.slice(0, LIVE_STT_FRAME_SAMPLES);
-              pendingPcm = pendingPcm.slice(LIVE_STT_FRAME_SAMPLES);
-              socket.send(JSON.stringify({
-                realtimeInput: { audio: { data: audioBufferToBase64(frame.buffer), mimeType: "audio/pcm;rate=16000" } },
-              }));
-              diagnostics.framesSent++;
-              diagnostics.phase = "PCM 전송";
-            }
-          } catch (e) {
-            fail("audio-send");
-          }
-        };
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-        clearTimeout(startTimer);
-        ui.mic(true);
-      } catch (e) {
-        if (!done) fail("microphone:" + (e && e.name ? e.name : "start-failed"));
-      }
-    };
-
-    const timeoutTimer = setTimeout(() => finish({ error: "timeout" }), timeoutMs || 12000);
-    startTimer = setTimeout(() => fail("startup-timeout"), LIVE_STT_START_TIMEOUT_MS);
-    cancel = reason => finish({ error: reason });
-    cancelActiveListening = cancel;
-
-    try {
-      socket = new WebSocket(LIVE_STT_ENDPOINT + encodeURIComponent(LS.geminiKey));
-    } catch (e) {
-      fail("websocket-create");
-      return;
-    }
-    socket.onopen = () => {
-      if (done) return;
-      try {
-        socket.send(JSON.stringify(buildGeminiLiveSetup()));
-        diagnostics.phase = "Live 설정 확인";
-      }
-      catch (e) { fail("setup-send"); }
-    };
-    socket.onmessage = event => {
-      if (done) return;
-      let message;
-      try { message = JSON.parse(event.data); } catch { fail("invalid-server-message"); return; }
-      if (message.error) {
-        const code = message.error.status || message.error.code || "server-error";
-        fail("server:" + code);
-        return;
-      }
-      if (message.setupComplete) {
-        setupComplete = true;
-        diagnostics.phase = "마이크 시작";
-        startMicrophone();
-        return;
-      }
-      const text = message.serverContent && message.serverContent.inputTranscription
-        && message.serverContent.inputTranscription.text;
-      if (typeof text === "string" && text.trim()) {
-        transcript = text.trim();
-        finishTranscript();
-      }
-    };
-    socket.onerror = () => {
-      if (done || socketErrorTimer) return;
-      // 브라우저는 error 뒤 close 이벤트에만 종료 코드를 주므로 잠시 기다린다.
-      socketErrorTimer = setTimeout(() => fail("websocket-error"), LIVE_STT_SOCKET_ERROR_GRACE_MS);
-    };
-    socket.onclose = event => {
-      clearTimeout(socketErrorTimer);
-      if (!done && !transcript) {
-        const code = event && event.code ? event.code : "unknown";
-        const reason = event && event.reason ? ":" + event.reason : "";
-        fail("websocket-close:" + code + reason);
-      }
-    };
-  });
-}
-
 async function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
-  if (!LS.geminiKey) return listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech);
-  const result = await listenWithGeminiLive(timeoutMs);
-  if (result.error === "paused" || result.error === "cancelled" || result.error === "timeout") return result;
-  if (result.text) return result;
-  ui.sub(geminiLiveFallbackMessage(result.liveReason, result.liveDiagnostics));
   return listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech);
 }
 
@@ -961,7 +710,7 @@ async function checkPattern(p, targetEn, heard) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n목표 영어 문장: "${targetEn}"\n` +
     `음성인식 원문: "${heard}"\n` +
-    `판정 기준: 목표 문장과 단어 순서가 완전히 같을 필요는 없습니다. 학습자가 목표 패턴(자연스러운 축약·시제 변화 포함)을 사용했고 같은 핵심 뜻을 전달했다면 correct는 true입니다. feedback_ko에는 핵심 오류 하나만 18자 안팎의 짧은 한 문장으로 쓰세요. 칭찬, 긴 설명, 음성 인식·발음·재시도 안내는 절대 쓰지 마세요.\n` +
+    `판정 기준: 음성인식 원문은 단어 오인식·누락이 있을 수 있는 참고 자료입니다. 목표 문장과 단어가 다르다는 이유만으로 틀렸다고 판단하지 마세요. 목표 패턴(자연스러운 축약·시제 변화 포함)과 같은 핵심 뜻이 가능하면 correct는 true입니다. 원문에서 명확한 문법·패턴 오류가 확인될 때만 한 가지를 교정하세요. 인식이 짧거나 애매하면 correct는 true, feedback_ko는 "좋아요."로 하세요. 칭찬, 긴 설명, 음성 인식·발음·재시도 안내는 절대 쓰지 마세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "핵심 오류 한 가지를 말하는 짧은 한국어 문장", "model_en": "가장 자연스러운 영어 문장"}`
   );
   return parseJson(raw);
@@ -971,7 +720,7 @@ async function checkAnswer(p, question, heard) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n질문: "${question}"\n` +
     `음성인식 원문: "${heard}"\n` +
-    `판정 기준: 모범 답안과 정확히 같은 문장을 요구하지 마세요. 학습자가 이 패턴(자연스러운 축약·시제 변화 포함)을 사용하고 질문에 맞는 뜻을 전달했다면 correct는 true입니다. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
+    `판정 기준: 음성인식 원문은 단어 오인식·누락이 있을 수 있는 참고 자료입니다. 모범 답안과 단어가 다르다는 이유만으로 틀렸다고 판단하지 마세요. 이 패턴(자연스러운 축약·시제 변화 포함)과 질문에 맞는 뜻이 가능하면 correct는 true입니다. 원문에서 명확한 문법·패턴 오류가 확인될 때만 교정하세요. 인식이 짧거나 애매하면 correct는 true, feedback_ko는 "좋아요."로 하세요. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "이 패턴을 사용한 자연스러운 모범 답변 한 문장"}`
   );
   return parseJson(raw);

@@ -6,153 +6,84 @@ const app = fs.readFileSync(new URL("../web/app.js", import.meta.url), "utf8");
 const start = app.indexOf("/* ==================== 음성: STT ==================== */");
 const end = app.indexOf("/* ==================== AI API", start);
 assert.ok(start >= 0 && end > start, "STT 구간을 찾을 수 있어야 합니다.");
+const sttCode = app.slice(start, end);
 
-const tracks = [];
+const recognizers = [];
 const uiEvents = [];
-const sockets = [];
-const warnings = [];
-let processor;
-let audioContext;
-
-class MockSocket {
-  static OPEN = 1;
-  static CLOSING = 2;
-
-  constructor(url) {
-    this.url = url;
-    this.readyState = MockSocket.OPEN;
-    this.sent = [];
-    sockets.push(this);
-  }
-
-  send(message) { this.sent.push(JSON.parse(message)); }
-
-  close() {
-    this.readyState = 3;
-    this.closed = true;
-    if (this.onclose) this.onclose();
-  }
-}
 
 class MockRecognition {
-  constructor() { this.abortCount = 0; }
-
-  start() {
-    queueMicrotask(() => this.onresult({
-      resultIndex: 0,
-      results: [{ isFinal: true, 0: { transcript: "browser fallback" } }],
-    }));
-  }
-
-  abort() { this.abortCount++; }
-}
-
-class MockAudioContext {
   constructor() {
-    this.sampleRate = 48000;
-    this.destination = {};
-    audioContext = this;
+    this.abortCount = 0;
+    recognizers.push(this);
   }
 
-  resume() { return Promise.resolve(); }
-  close() { this.closed = true; return Promise.resolve(); }
-  createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
-  createScriptProcessor() {
-    processor = { connect() {}, disconnect() {}, onaudioprocess: null };
-    return processor;
+  start() { this.started = true; }
+  abort() { this.abortCount++; }
+
+  final(text, index = 0) {
+    this.onresult({ resultIndex: index, results: [{ isFinal: true, 0: { transcript: text } }] });
   }
 }
 
-const stream = {
-  getTracks() {
-    return [{ stop() { tracks.push("stopped"); } }];
-  },
-};
 const context = vm.createContext({
-  window: {
-    SpeechRecognition: MockRecognition,
-    WebSocket: MockSocket,
-    AudioContext: MockAudioContext,
-  },
-  WebSocket: MockSocket,
-  navigator: { mediaDevices: { getUserMedia: () => Promise.resolve(stream) } },
-  btoa: value => Buffer.from(value, "binary").toString("base64"),
+  window: { SpeechRecognition: MockRecognition },
   setTimeout,
   clearTimeout,
-  queueMicrotask,
-  console: { warn: (...args) => warnings.push(args.join(" ")), log() {} },
+  Set,
 });
 
 vm.runInContext(`
-  const LS = { geminiKey: "test-key" };
   const ui = {
     mic: value => globalThis.__uiEvents.push(["mic", value]),
-    sub: value => globalThis.__uiEvents.push(["sub", value]),
   };
-  const ANSWER_SPEECH_PAUSE_MS = 1;
-  ${app.slice(start, end)}
-  globalThis.__stt = { buildGeminiLiveSetup, geminiLiveFallbackMessage, listenWithGeminiLive, listen, stopActiveListening };
+  const ANSWER_SPEECH_PAUSE_MS = 40;
+  ${sttCode}
+  globalThis.__stt = { listen, stopActiveListening };
 `, Object.assign(context, { __uiEvents: uiEvents }));
 
-const setup = context.__stt.buildGeminiLiveSetup();
-assert.equal(setup.setup.realtimeInputConfig.automaticActivityDetection.silenceDurationMs, 3500);
-assert.equal(setup.setup.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity, "END_SENSITIVITY_LOW");
-assert.equal(JSON.stringify(setup.setup.inputAudioTranscription), "{}");
-assert.equal(JSON.stringify(setup.setup.generationConfig.responseModalities), "[\"AUDIO\"]");
-assert.equal("responseModalities" in setup.setup, false, "Native Audio Live 모델은 응답 형식을 generationConfig 안에서 받아야 합니다.");
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-const liveResult = context.__stt.listenWithGeminiLive(2000);
-const liveSocket = sockets.at(-1);
-liveSocket.onopen();
-assert.equal(liveSocket.sent[0].setup.model, "models/gemini-2.5-flash-native-audio-latest");
-liveSocket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
-await new Promise(resolve => setImmediate(resolve));
-processor.onaudioprocess({
-  inputBuffer: { getChannelData: () => new Float32Array(2048).fill(0.25) },
-  outputBuffer: { getChannelData: () => new Float32Array(2048) },
-});
-assert.equal(liveSocket.sent[1].realtimeInput.audio.mimeType, "audio/pcm;rate=16000");
-assert.equal(Buffer.from(liveSocket.sent[1].realtimeInput.audio.data, "base64").byteLength, 1024, "Live에는 16kHz 32ms PCM 단위만 전송해야 합니다.");
-let advancedBeforeServerTurnEnds = false;
-liveResult.then(() => { advancedBeforeServerTurnEnds = true; });
-await new Promise(resolve => setTimeout(resolve, 500));
-assert.equal(advancedBeforeServerTurnEnds, false, "0.5초의 말 사이 휴지는 앱에서 발화를 끝내면 안 됩니다.");
-liveSocket.onmessage({ data: JSON.stringify({ serverContent: { inputTranscription: { text: "I am Bojae" } } }) });
-assert.equal(JSON.stringify(await liveResult), JSON.stringify({ text: "I am Bojae", alternatives: [] }));
-assert.ok(tracks.length > 0 && audioContext.closed && liveSocket.closed, "완료 시 Live 자원을 닫아야 합니다.");
+const result = context.__stt.listen("en-US", 2000, true);
+const first = recognizers.at(-1);
+assert.ok(first.started, "질문 음성 종료 후 인식을 즉시 시작해야 합니다.");
+assert.equal(first.continuous, false, "한 인식기에서 연속 인식해 결과를 중복시키면 안 됩니다.");
+assert.equal(first.interimResults, true, "임시 결과는 발화가 이어지는지 판단하는 데 사용해야 합니다.");
+assert.equal(first.maxAlternatives, 1, "후보 선택으로 원문을 바꾸면 안 됩니다.");
 
-const cancelled = context.__stt.listenWithGeminiLive(2000);
-const cancelSocket = sockets.at(-1);
-cancelSocket.onopen();
-cancelSocket.onmessage({ data: JSON.stringify({ setupComplete: {} }) });
-await new Promise(resolve => setImmediate(resolve));
+first.final("I am");
+first.final("I am");
+first.onend();
+await wait(5);
+
+const second = recognizers.at(-1);
+assert.notEqual(second, first, "첫 구절 뒤 새 인식기를 즉시 열어야 합니다.");
+second.final("Bojae");
+second.onend();
+await wait(5);
+
+const third = recognizers.at(-1);
+third.final("and I work here");
+third.onend();
+await wait(70);
+assert.equal(JSON.stringify(await result), JSON.stringify({ text: "I am Bojae and I work here", alternatives: [] }), "1초 안팎의 여러 휴지 뒤 구절을 순서대로 한 번만 합쳐야 합니다.");
+
+const repeatedResult = context.__stt.listen("en-US", 2000, true);
+const repeatedFirst = recognizers.at(-1);
+repeatedFirst.final("I am");
+repeatedFirst.onend();
+await wait(5);
+const repeatedSecond = recognizers.at(-1);
+repeatedSecond.final("I am Bojae");
+repeatedSecond.onend();
+await wait(70);
+assert.equal(JSON.stringify(await repeatedResult), JSON.stringify({ text: "I am I am Bojae", alternatives: [] }), "사용자가 실제로 반복한 말은 삭제하지 않아야 합니다.");
+
+const pausedResult = context.__stt.listen("en-US", 2000, true);
+const pausedRecognizer = recognizers.at(-1);
 context.__stt.stopActiveListening("paused");
-assert.equal(JSON.stringify(await cancelled), JSON.stringify({ error: "paused" }));
-assert.ok(cancelSocket.closed, "일시정지는 Live WebSocket을 즉시 닫아야 합니다.");
+assert.equal(JSON.stringify(await pausedResult), JSON.stringify({ error: "paused" }));
+assert.equal(pausedRecognizer.abortCount, 1, "일시정지는 현재 브라우저 인식을 즉시 중단해야 합니다.");
 
-const fallback = context.__stt.listen("en-US", 2000, true);
-const fallbackSocket = sockets.at(-1);
-fallbackSocket.onerror();
-fallbackSocket.onclose({ code: 1006 });
-assert.equal(JSON.stringify(await fallback), JSON.stringify({ text: "browser fallback", alternatives: [] }));
-assert.ok(uiEvents.some(([, text]) => typeof text === "string" && text.startsWith("Gemini Live WebSocket 연결이 끊겼습니다 (코드 1006). 브라우저 인식으로 전환합니다.") && text.includes("진단 코드: LIVE_1006")));
-
-const serverFallback = context.__stt.listen("en-US", 2000, true);
-const serverSocket = sockets.at(-1);
-serverSocket.onopen();
-serverSocket.onmessage({ data: JSON.stringify({ error: { status: "PERMISSION_DENIED" } }) });
-assert.equal(JSON.stringify(await serverFallback), JSON.stringify({ text: "browser fallback", alternatives: [] }));
-assert.ok(warnings.some(message => message.includes("server:PERMISSION_DENIED")));
-assert.equal(context.__stt.geminiLiveFallbackMessage("server:RESOURCE_EXHAUSTED"), "Gemini 무료 할당량 문제로 브라우저 인식으로 전환합니다.");
-assert.equal(context.__stt.geminiLiveFallbackMessage("microphone:NotAllowedError"), "Gemini용 마이크 연결에 실패해 브라우저 인식으로 전환합니다.");
-assert.equal(context.__stt.geminiLiveFallbackMessage("websocket-close:1008"), "Gemini Live 접근이 거절됐습니다 (코드 1008). API 키·Live 권한을 확인해 주세요.");
-assert.equal(context.__stt.geminiLiveFallbackMessage("websocket-close:1007"), "Gemini Live 오디오 데이터를 처리하지 못했습니다 (코드 1007). 브라우저 인식으로 전환합니다.");
-assert.match(
-  context.__stt.geminiLiveFallbackMessage("websocket-close:1007:invalid audio payload", { phase: "PCM 전송", trackRate: 48000, trackChannels: 1, contextRate: 16000, framesSent: 2 }),
-  /진단 코드: LIVE_1007\n실패 단계: PCM 전송\n모델: gemini-2\.5-flash-native-audio-latest\n실제 입력: 48000Hz \/ 1채널 · 컨텍스트 16000Hz\n전송: PCM 16kHz \/ 16비트 \/ 모노 · 2프레임\n서버 사유: invalid audio payload/
-);
-
-assert.match(app, /r\.continuous = false;/);
-assert.match(app, /r\.interimResults = false;/);
-assert.match(app, /r\.maxAlternatives = 1;/);
-console.log("Live STT mock tests passed");
+assert.doesNotMatch(sttCode, /LIVE_STT|listenWithGeminiLive|WebSocket/, "음성 인식 경로에 Gemini Live 연결이 남아 있으면 안 됩니다.");
+assert.match(app, /음성인식 원문은 단어 오인식·누락이 있을 수 있는 참고 자료입니다/, "불완전한 브라우저 인식만으로 오답 처리하면 안 됩니다.");
+console.log("Browser STT mock tests passed");
