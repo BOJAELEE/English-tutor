@@ -121,3 +121,16 @@ h1 { font-size: 24px; }
   background: #252a40; border: 1px solid #3a415e; border-radius: 10px;
   color: #eef0f6; font-size: 17px; padding: 14px;
 }
+
+/* Fold 7 내부 화면 가로 모드: 여백을 줄여 안내문을 더 크게 표시 */
+@media (orientation: landscape) and (min-width: 700px) and (min-height: 600px) {
+  .screen { max-width: 720px; padding: 18px 24px; gap: 16px; }
+  .practice-header { font-size: 17px; }
+  .status-card { padding: 22px 28px; }
+  #status-main { font-size: 34px; }
+  #status-sub { font-size: 24px; }
+  .training-line { margin-bottom: 18px; }
+  .ctl-btn { font-size: 19px; min-height: 60px; }
+  .day-plan { font-size: 17px; }
+  .big-btn { font-size: 24px; }
+}
