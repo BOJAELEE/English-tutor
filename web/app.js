@@ -660,6 +660,25 @@ function parseTrainingPromptText(raw, showTarget) {
   return isValidTrainingPrompt(val, showTarget) ? val : null;
 }
 
+function koreanPatternMeaning(title) {
+  const meanings = String(title || "").match(/\([^()]*[가-힣][^()]*\)/g) || [];
+  const joined = meanings.map(text => text.slice(1, -1).trim()).filter(Boolean).join(" / ");
+  if (joined) return joined;
+  const koreanParts = String(title || "").match(/[가-힣]+(?:\s+[가-힣]+)*/g) || [];
+  return koreanParts.join(" / ") || "오늘의 표현";
+}
+
+function basicTrainingPrompt(p, exIdx, showTarget) {
+  const meaning = koreanPatternMeaning(p.title);
+  return {
+    target_en: p.examples[exIdx],
+    situation: "‘" + meaning + "’가 필요한 대화 상황입니다.",
+    target_ko: showTarget ? "‘" + meaning + "’라는 뜻을 담아 자연스럽게 말해보세요." : "",
+    core_meaning: meaning,
+    isFallback: true,
+  };
+}
+
 async function getTrainingPrompt(p, exIdx, showTarget) {
   const key = "training_v9_t" + (showTarget ? "1" : "0") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
@@ -671,21 +690,26 @@ async function getTrainingPrompt(p, exIdx, showTarget) {
   const format = showTarget
     ? "원문: ...\n상황: ...\n문장: ...\n핵심: ..."
     : "원문: ...\n상황: ...\n문장:\n핵심: ...";
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const raw = await callLLM(
-      `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-      `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. 원문 줄에는 목표 영어 문장을 글자까지 똑같이 복사하세요. 문장 줄은 그 원문만 정확히 한국어로 번역하세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ${levelGuide}\n` +
-      `정확히 다음 형식의 네 줄만 출력하세요.\n${format}`,
-      240,
-      TRAINING_PROMPT_SYSTEM
-    );
-    const val = parseTrainingPromptText(raw, showTarget);
-    if (isValidTrainingPrompt(val, showTarget, ex)) {
-      LS.cacheSet(key, val);
-      return val;
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const raw = await callLLM(
+        `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
+        `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. 원문 줄에는 목표 영어 문장을 글자까지 똑같이 복사하세요. 문장 줄은 그 원문만 정확히 한국어로 번역하세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ${levelGuide}\n` +
+        `정확히 다음 형식의 네 줄만 출력하세요.\n${format}`,
+        240,
+        TRAINING_PROMPT_SYSTEM
+      );
+      const val = parseTrainingPromptText(raw, showTarget);
+      if (isValidTrainingPrompt(val, showTarget, ex)) {
+        LS.cacheSet(key, val);
+        return val;
+      }
     }
+  } catch (e) {
+    if ((e && e.cancelled) || state.skip || state.back || state.quit) throw e;
+    console.warn("훈련 안내 요청 실패 - 기본 안내로 진행:", e);
   }
-  throw new Error("훈련 안내문을 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
+  return basicTrainingPrompt(p, exIdx, showTarget);
 }
 
 function trainingPromptText(prompt, showTarget) {
@@ -1068,6 +1092,9 @@ async function runGuidedPatternTask(task) {
   if (recognition === null) {
     feedbackKo = "최종 문장입니다.";
     modelEn = ex;
+  } else if (prompt.isFallback) {
+    feedbackKo = "최종 문장입니다.";
+    modelEn = ex;
   } else {
     const heard = recognition.text;
     ui.sub("들은 내용: " + heard);
@@ -1114,7 +1141,23 @@ async function runDailyConversationTask(task) {
   const history = [];
   ui.main("Starting a short conversation...");
   ui.sub("");
-  const opening = await step(() => startDailyConversation(task.patterns));
+  const fallbackLines = [
+    "How is your day going?",
+    "What are you doing after work?",
+    "What would you like to do this weekend?",
+  ];
+  const requestConversationLine = async (request, fallbackLine) => {
+    try {
+      return await step(request);
+    } catch (e) {
+      if ((e && e.quit) || state.quit || (e && e.cancelled) || state.skip || state.back) throw e;
+      console.warn("일상 회화 요청 실패 - 기본 질문으로 진행:", e);
+      return { reply_en: fallbackLine };
+    }
+  };
+  const opening = await requestConversationLine(
+    () => startDailyConversation(task.patterns), fallbackLines[0]
+  );
   let aiLine = opening.reply_en;
   if (!aiLine) throw new Error("일상 회화 시작 문장을 받지 못했습니다.");
 
@@ -1131,7 +1174,9 @@ async function runDailyConversationTask(task) {
     ui.sub(heard ? "You said: " + heard : "No answer recorded.");
 
     if (turn < 2) {
-      const next = await step(() => continueDailyConversation(task.patterns, history));
+      const next = await requestConversationLine(
+        () => continueDailyConversation(task.patterns, history), fallbackLines[turn + 1]
+      );
       aiLine = next.reply_en;
       if (!aiLine) throw new Error("다음 일상 회화 문장을 받지 못했습니다.");
     }
@@ -1139,7 +1184,14 @@ async function runDailyConversationTask(task) {
 
   ui.main("Let's review your conversation.");
   ui.sub("");
-  const result = await step(() => reviewDailyConversation(task.patterns, history));
+  let result;
+  try {
+    result = await step(() => reviewDailyConversation(task.patterns, history));
+  } catch (e) {
+    if ((e && e.quit) || state.quit || (e && e.cancelled) || state.skip || state.back) throw e;
+    console.warn("일상 회화 리뷰 요청 실패 - 기본 리뷰로 진행:", e);
+    result = {};
+  }
   if (state.skip || state.back) return;
   const rawReviews = Array.isArray(result.reviews) ? result.reviews : [];
   const reviews = history.map((turn, i) => ({
@@ -1212,11 +1264,14 @@ async function runDay() {
     } catch (e) {
       if ((e && e.quit) || state.quit) throw { quit: true };
       if (!((e && e.cancelled) || state.skip || state.back)) {
-        // 외부 API가 끝까지 응답하지 않으면 학습을 멈추지 않고 다음 문제로 진행
+        // 각 AI 요청은 내부에서 기본 안내로 대체한다. 남은 예외도 자동으로 건너뛰지 않는다.
         console.error(e);
-        ui.main("연결이 지연되어 다음 문제로 넘어갑니다.");
+        ui.main("이 문제를 다시 준비합니다.");
         ui.sub("");
-        await speak("연결이 지연되어 다음 문제로 넘어갑니다.", "ko-KR");
+        await speak("이 문제를 다시 준비합니다.", "ko-KR");
+        previousTask = null;
+        arrivedByBack = false;
+        continue;
       }
     }
 
