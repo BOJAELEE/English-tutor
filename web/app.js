@@ -654,29 +654,11 @@ function parseTrainingPromptText(raw, showTarget) {
   const labels = { 원문: "target_en", 상황: "situation", 문장: "target_ko", 핵심: "core_meaning" };
   const val = { target_ko: "" };
   for (const line of String(raw).replace(/\*\*/g, "").split(/\r?\n/)) {
-    const match = line.trim().match(/^(원문|상황|문장|핵심)\s*[:：]\s*(.+)$/);
-    if (match) val[labels[match[1]]] = match[2].trim();
+    const normalized = line.trim().replace(/^[-•]\s*/, "");
+    const match = normalized.match(/^(원문|상황|문장|핵심)\s*[:：]\s*(.+)$/);
+    if (match) val[labels[match[1]]] = match[2].trim().replace(/^["“”]|["“”]$/g, "");
   }
   return isValidTrainingPrompt(val, showTarget) ? val : null;
-}
-
-function koreanPatternMeaning(title) {
-  const meanings = String(title || "").match(/\([^()]*[가-힣][^()]*\)/g) || [];
-  const joined = meanings.map(text => text.slice(1, -1).trim()).filter(Boolean).join(" / ");
-  if (joined) return joined;
-  const koreanParts = String(title || "").match(/[가-힣]+(?:\s+[가-힣]+)*/g) || [];
-  return koreanParts.join(" / ") || "오늘의 표현";
-}
-
-function basicTrainingPrompt(p, exIdx, showTarget) {
-  const meaning = koreanPatternMeaning(p.title);
-  return {
-    target_en: p.examples[exIdx],
-    situation: "‘" + meaning + "’가 필요한 대화 상황입니다.",
-    target_ko: showTarget ? "‘" + meaning + "’라는 뜻을 담아 자연스럽게 말해보세요." : "",
-    core_meaning: meaning,
-    isFallback: true,
-  };
 }
 
 async function getTrainingPrompt(p, exIdx, showTarget) {
@@ -707,9 +689,11 @@ async function getTrainingPrompt(p, exIdx, showTarget) {
     }
   } catch (e) {
     if ((e && e.cancelled) || state.skip || state.back || state.quit) throw e;
-    console.warn("훈련 안내 요청 실패 - 기본 안내로 진행:", e);
+    console.warn("훈련 안내 요청 실패 - 같은 문제를 다시 준비:", e);
   }
-  return basicTrainingPrompt(p, exIdx, showTarget);
+  const error = new Error("정확한 훈련 안내문을 받지 못했습니다.");
+  error.promptRetry = true;
+  throw error;
 }
 
 function trainingPromptText(prompt, showTarget) {
@@ -1092,9 +1076,6 @@ async function runGuidedPatternTask(task) {
   if (recognition === null) {
     feedbackKo = "최종 문장입니다.";
     modelEn = ex;
-  } else if (prompt.isFallback) {
-    feedbackKo = "최종 문장입니다.";
-    modelEn = ex;
   } else {
     const heard = recognition.text;
     ui.sub("들은 내용: " + heard);
@@ -1264,14 +1245,30 @@ async function runDay() {
     } catch (e) {
       if ((e && e.quit) || state.quit) throw { quit: true };
       if (!((e && e.cancelled) || state.skip || state.back)) {
-        // 각 AI 요청은 내부에서 기본 안내로 대체한다. 남은 예외도 자동으로 건너뛰지 않는다.
-        console.error(e);
-        ui.main("이 문제를 다시 준비합니다.");
-        ui.sub("");
-        await speak("이 문제를 다시 준비합니다.", "ko-KR");
-        previousTask = null;
-        arrivedByBack = false;
-        continue;
+        if (e && e.promptRetry) {
+          ui.main("정확한 안내를 다시 준비하고 있어요.");
+          ui.sub("같은 문제를 이어서 진행합니다.");
+          await speak("정확한 안내를 다시 준비하고 있어요.", "ko-KR");
+          if (state.quit) throw { quit: true };
+          if (!state.skip && !state.back) {
+            previousTask = null;
+            arrivedByBack = false;
+            continue;
+          }
+        }
+        if (!state.skip && !state.back) {
+          // 안내문은 같은 문제에서 재시도하고, 남은 예외도 자동으로 건너뛰지 않는다.
+          console.error(e);
+          ui.main("이 문제를 다시 준비합니다.");
+          ui.sub("");
+          await speak("이 문제를 다시 준비합니다.", "ko-KR");
+          if (state.quit) throw { quit: true };
+          if (!state.skip && !state.back) {
+            previousTask = null;
+            arrivedByBack = false;
+            continue;
+          }
+        }
       }
     }
 
