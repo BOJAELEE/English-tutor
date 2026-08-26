@@ -383,11 +383,12 @@ async function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
 const SYSTEM_PROMPT =
   "당신은 한국인을 위한 영어회화 튜터입니다. 반드시 요청된 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.";
 const TRAINING_PROMPT_SYSTEM =
-  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 요청한 네 줄만 출력하세요. 원문 줄에만 주어진 영어 문장을 그대로 쓰고, 나머지 세 줄은 한국어로 쓰세요.";
+  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 반드시 JSON 객체만 출력하세요. 필드는 target_en, situation, target_ko, core_meaning입니다. target_en에는 주어진 목표 영어 문장을 글자까지 똑같이 복사하고, 나머지 필드는 한국어로만 작성하세요.";
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
 const LLM_REQUEST_TIMEOUT_MS = 15000;
+const TRAINING_REQUEST_TIMEOUT_MS = 30000;
 const activeRequestControllers = new Set();
 const activeRetryWaiters = new Set();
 
@@ -419,14 +420,14 @@ function waitBeforeLlmRetry(timeoutMs) {
   });
 }
 
-function fetchWithTimeout(url, options = {}) {
+function fetchWithTimeout(url, options = {}, timeoutMs = LLM_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
   let timedOut = false;
   activeRequestControllers.add(controller);
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, LLM_REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
   return fetch(url, { ...options, signal: controller.signal })
     .catch(error => {
       if (error && error.name === "AbortError") {
@@ -446,11 +447,13 @@ function fetchWithTimeout(url, options = {}) {
 }
 
 /* 일시 오류(과부하/한도/시간 제한)는 한 번만 재시도 */
-async function callLLM(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
+async function callLLM(user, maxTokens, systemPrompt = SYSTEM_PROMPT, options = {}) {
   let lastErr;
   for (let i = 0; i < 2; i++) {
     try {
-      return await (LS.engine === "gemini" ? callGemini(user, maxTokens, systemPrompt) : callClaude(user, maxTokens, systemPrompt));
+      return await (LS.engine === "gemini"
+        ? callGemini(user, maxTokens, systemPrompt, options)
+        : callClaude(user, maxTokens, systemPrompt, options));
     } catch (e) {
       lastErr = e;
       if (e && e.cancelled) throw e;
@@ -503,7 +506,7 @@ async function resolveGeminiModel() {
   return model;
 }
 
-async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
+async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT, options = {}) {
   const model = await resolveGeminiModel();
   const url = "https://generativelanguage.googleapis.com/v1beta/models/" + model
     + ":generateContent?key=" + encodeURIComponent(LS.geminiKey);
@@ -515,10 +518,10 @@ async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
       contents: [{ role: "user", parts: [{ text: user }] }],
       generationConfig: {
         maxOutputTokens: (maxTokens || 400) + 2000, // thinking 토큰 여유분
-        ...(systemPrompt === SYSTEM_PROMPT ? { responseMimeType: "application/json" } : {}),
+        ...(options.responseJson || systemPrompt === SYSTEM_PROMPT ? { responseMimeType: "application/json" } : {}),
       },
     }),
-  });
+  }, options.timeoutMs);
   if (!res.ok) {
     if (res.status === 404) { // 이 모델 제외하고 다음 시도에 재탐색
       geminiFailed.add(model);
@@ -549,7 +552,7 @@ async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
   return text;
 }
 
-async function callClaude(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
+async function callClaude(user, maxTokens, systemPrompt = SYSTEM_PROMPT, options = {}) {
   const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -564,7 +567,7 @@ async function callClaude(user, maxTokens, systemPrompt = SYSTEM_PROMPT) {
       system: systemPrompt,
       messages: [{ role: "user", content: user }],
     }),
-  });
+  }, options.timeoutMs);
   if (!res.ok) {
     const t = await res.text();
     const err = new Error("Claude API 오류 " + res.status + ": " + t.slice(0, 200));
@@ -661,27 +664,33 @@ function parseTrainingPromptText(raw, showTarget) {
   return isValidTrainingPrompt(val, showTarget) ? val : null;
 }
 
+function parseTrainingPrompt(raw, showTarget) {
+  try {
+    const val = parseJson(raw);
+    if (isValidTrainingPrompt(val, showTarget)) return val;
+  } catch {}
+  return parseTrainingPromptText(raw, showTarget);
+}
+
 async function getTrainingPrompt(p, exIdx, showTarget) {
   const key = "training_v9_t" + (showTarget ? "1" : "0") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (isValidTrainingPrompt(cached, showTarget, p.examples[exIdx])) return cached;
   const ex = p.examples[exIdx];
   const levelGuide = showTarget
-    ? "문장 줄에는 정확한 한국어 번역 한 문장, 핵심 줄에는 짧은 핵심 의미를 쓰세요."
-    : "문장 줄은 비워두고, 핵심 줄에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
-  const format = showTarget
-    ? "원문: ...\n상황: ...\n문장: ...\n핵심: ..."
-    : "원문: ...\n상황: ...\n문장:\n핵심: ...";
+    ? "target_ko에는 원문의 정확한 한국어 번역 한 문장, core_meaning에는 짧은 핵심 의미를 쓰세요."
+    : "target_ko는 빈 문자열로 두고, core_meaning에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const raw = await callLLM(
         `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-        `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. 원문 줄에는 목표 영어 문장을 글자까지 똑같이 복사하세요. 문장 줄은 그 원문만 정확히 한국어로 번역하세요. 상황에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ${levelGuide}\n` +
-        `정확히 다음 형식의 네 줄만 출력하세요.\n${format}`,
+        `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. situation에는 이 문장의 실제 사건·대상·장소·시간 중 하나 이상을 넣으세요. ${levelGuide}\n` +
+        `JSON: {"target_en":"목표 영어 문장 원문", "situation":"구체적인 한국어 상황", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"}`,
         240,
-        TRAINING_PROMPT_SYSTEM
+        TRAINING_PROMPT_SYSTEM,
+        { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true }
       );
-      const val = parseTrainingPromptText(raw, showTarget);
+      const val = parseTrainingPrompt(raw, showTarget);
       if (isValidTrainingPrompt(val, showTarget, ex)) {
         LS.cacheSet(key, val);
         return val;
