@@ -283,6 +283,61 @@ async function speak(text, lang) {
 /* ==================== 음성: STT ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let cancelActiveListening = null;
+const READY_TONE_FREQUENCY_HZ = 880;
+const READY_TONE_DURATION_MS = 90;
+const READY_TONE_FALLBACK_MS = 300;
+let readyToneContext = null;
+let activeReadyTone = null;
+
+function getReadyToneContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!readyToneContext) readyToneContext = new AudioContextClass();
+  return readyToneContext;
+}
+
+function primeReadyTone() {
+  const context = getReadyToneContext();
+  if (context && context.state === "suspended") context.resume().catch(() => {});
+}
+
+function stopReadyTone() {
+  if (!activeReadyTone) return;
+  const { oscillator, gain } = activeReadyTone;
+  activeReadyTone = null;
+  try { oscillator.stop(); } catch {}
+  try { oscillator.disconnect(); } catch {}
+  try { gain.disconnect(); } catch {}
+}
+
+function playReadyTone() {
+  stopReadyTone();
+  const context = getReadyToneContext();
+  if (!context) return;
+  const start = () => {
+    try {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const now = context.currentTime;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(READY_TONE_FREQUENCY_HZ, now);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + READY_TONE_DURATION_MS / 1000);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      activeReadyTone = { oscillator, gain };
+      oscillator.onended = () => {
+        if (activeReadyTone && activeReadyTone.oscillator === oscillator) activeReadyTone = null;
+        try { oscillator.disconnect(); } catch {}
+        try { gain.disconnect(); } catch {}
+      };
+      oscillator.start(now);
+      oscillator.stop(now + READY_TONE_DURATION_MS / 1000);
+    } catch {}
+  };
+  if (context.state === "suspended") context.resume().then(start).catch(() => {});
+  else start();
+}
 
 function stopActiveListening(reason = "cancelled") {
   if (cancelActiveListening) cancelActiveListening(reason);
@@ -293,20 +348,22 @@ function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
     if (!SR) return resolve({ error: "unsupported" });
     let done = false;
     let recognizer = null;
-    let restartTimer = null;
     let speechPauseTimer = null;
     let firstSpeechTimer = null;
+    let readyFallbackTimer = null;
     let heardActivity = false;
     let lastActivityAt = 0;
+    let readyCuePlayed = false;
     const segments = [];
     let cancel = null;
     const finish = result => {
       if (!done) {
         done = true;
         clearTimeout(firstSpeechTimer);
-        clearTimeout(restartTimer);
         clearTimeout(speechPauseTimer);
+        clearTimeout(readyFallbackTimer);
         try { recognizer && recognizer.abort(); } catch {}
+        stopReadyTone();
         ui.mic(false);
         if (cancelActiveListening === cancel) cancelActiveListening = null;
         resolve(result);
@@ -327,11 +384,12 @@ function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       finishAfterSpeechPause();
     };
     const restartRecognizer = () => {
-      if (done || restartTimer) return;
-      restartTimer = setTimeout(() => {
-        restartTimer = null;
-        if (!done && (!heardActivity || Date.now() - lastActivityAt < ANSWER_SPEECH_PAUSE_MS)) startRecognizer();
-      }, 0);
+      if (done) return;
+      if (heardActivity && Date.now() - lastActivityAt >= ANSWER_SPEECH_PAUSE_MS) {
+        finish(segments.length ? { text: segments.join(" "), alternatives: [] } : { error: "no-final" });
+        return;
+      }
+      startRecognizer();
     };
     firstSpeechTimer = setTimeout(() => {
       finish({ error: "timeout" });
@@ -345,6 +403,21 @@ function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       r.continuous = false;
       r.interimResults = true;
       r.maxAlternatives = 1;
+      const markReady = () => {
+        if (done || r !== recognizer) return;
+        clearTimeout(readyFallbackTimer);
+        ui.mic(true, "말씀하세요");
+        if (!readyCuePlayed) {
+          readyCuePlayed = true;
+          playReadyTone();
+        }
+      };
+      r.onstart = () => {
+        if (readyCuePlayed || done || r !== recognizer) return;
+        clearTimeout(readyFallbackTimer);
+        readyFallbackTimer = setTimeout(markReady, READY_TONE_FALLBACK_MS);
+      };
+      r.onaudiostart = markReady;
       r.onresult = e => {
         if (done || r !== recognizer) return;
         noteActivity();
@@ -370,7 +443,7 @@ function listenWithBrowser(lang, timeoutMs, keepListeningOnNoSpeech = false) {
       };
       try { r.start(); } catch { finish({ error: "start-failed" }); }
     };
-    ui.mic(true);
+    ui.mic(true, "마이크 준비 중...");
     startRecognizer();
   });
 }
@@ -892,7 +965,11 @@ const ui = {
     }
   },
   sub(t) { $("status-sub").textContent = t; },
-  mic(on) { $("mic-indicator").classList.toggle("hidden", !on); },
+  mic(on, message = "듣고 있어요...") {
+    const el = $("mic-indicator");
+    el.classList.toggle("hidden", !on);
+    if (on) el.lastChild.textContent = message;
+  },
   header(day, session, done, total) {
     $("ph-day").textContent = "Day " + day;
     $("ph-session").textContent = session;
@@ -1327,6 +1404,7 @@ function refreshHome() {
 
 $("btn-start").onclick = async () => {
   if (!currentKey()) { openSettings(); return; }
+  primeReadyTone();
   state.running = true; state.paused = false; state.quit = false;
   ui.show("practice");
   $("btn-pause").textContent = "일시정지";
