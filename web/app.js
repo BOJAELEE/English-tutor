@@ -1402,6 +1402,8 @@ document.addEventListener("visibilitychange", () => {
 function refreshHome() {
   const prog = LS.progress;
   $("home-day").textContent = "Day " + prog.day;
+  $("btn-home-day-prev").disabled = prog.day <= 1;
+  $("btn-home-day-next").disabled = prog.day >= TOTAL_DAYS;
   const pats = dayPatterns(prog.day);
   const lines = pats.map(p => "패턴 " + p.num + ". " + p.title);
   if (prog.day > 1) lines.push("+ 어제 복습 " + PATTERNS_PER_DAY + "개, 전체 복습 2개");
@@ -1412,6 +1414,17 @@ function refreshHome() {
   const resumed = prog.pos > 0;
   $("btn-start").textContent = resumed ? "이어서 학습" : "학습 시작";
 }
+
+function moveHomeDay(direction) {
+  const current = LS.progress;
+  const day = Math.min(TOTAL_DAYS, Math.max(1, current.day + direction));
+  if (day === current.day) return;
+  LS.progress = { day, pos: 0 };
+  refreshHome();
+}
+
+$("btn-home-day-prev").onclick = () => moveHomeDay(-1);
+$("btn-home-day-next").onclick = () => moveHomeDay(1);
 
 $("btn-start").onclick = async () => {
   if (!currentKey()) { openSettings(); return; }
