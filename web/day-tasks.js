@@ -10,9 +10,9 @@ function dayPatterns(day) {
   return PATTERNS.slice(start, start + PATTERNS_PER_DAY);
 }
 
-/* 세션4 랜덤 복습 선택을 날짜별로 고정 (뒤로/앞으로 이동해도 같은 문제 유지) */
+/* 세션4 복습 선택을 날짜별로 고정하고, 아직 나오지 않은 구동사·일반 패턴을 먼저 고른다. */
 function getReviewPicks(day, pool) {
-  const key = "reviewPicks_" + day;
+  const key = "reviewPicks_v3_" + day;
   let cachedNums = null;
   try { cachedNums = JSON.parse(localStorage.getItem(key)); } catch {}
   if (Array.isArray(cachedNums)) {
@@ -21,9 +21,22 @@ function getReviewPicks(day, pool) {
   }
   const phrasal = pool.filter(isPhrasalPattern);
   const regular = pool.filter(p => !isPhrasalPattern(p));
-  const pick = patterns => patterns[Math.floor(Math.random() * patterns.length)];
+  const previousNums = isPhrasal => {
+    const nums = new Set();
+    for (let reviewDay = 2; reviewDay < day; reviewDay++) {
+      const previousPool = PATTERNS.slice(0, (reviewDay - 1) * PATTERNS_PER_DAY);
+      const previousPicks = getReviewPicks(reviewDay, previousPool);
+      previousPicks.filter(p => isPhrasalPattern(p) === isPhrasal).forEach(p => nums.add(p.num));
+    }
+    return nums;
+  };
+  const pick = (patterns, isPhrasal) => {
+    const unseen = patterns.filter(p => !previousNums(isPhrasal).has(p.num));
+    const choices = unseen.length ? unseen : patterns;
+    return choices[(day - 2) % choices.length];
+  };
   const picks = phrasal.length && regular.length
-    ? [pick(phrasal), pick(regular)]
+    ? [pick(phrasal, true), pick(regular, false)]
     : pool.slice(0, Math.min(2, pool.length));
   localStorage.setItem(key, JSON.stringify(picks.map(p => p.num)));
   return picks;
@@ -39,18 +52,18 @@ function buildSessions(day) {
   const patternTasks = (patterns, trainingLevel, showTarget) => patterns.flatMap(p =>
     p.examples.map((ex, exIdx) => ({ kind: "pattern", p, ex, exIdx, trainingLevel, showTarget }))
   );
-  const oneExampleTasks = (patterns, trainingLevel, showTarget) => patterns.map(p =>
-    ({ kind: "pattern", p, ex: p.examples[0], exIdx: 0, trainingLevel, showTarget })
+  const oneExampleTasks = (patterns, trainingLevel, showTarget, shadowPauseMs = 0) => patterns.map(p =>
+    ({ kind: "pattern", p, ex: p.examples[0], exIdx: 0, trainingLevel, showTarget, shadowPauseMs })
   );
   const s1 = patternTasks(today, 1, true);
-  const s2 = today.map(p => ({ kind: "situation", p, trainingLevel: 2, showTarget: true }));
+  const s2 = today.map(p => ({ kind: "situation", p, trainingLevel: 2, showTarget: true, showSituation: false, shadowPauseMs: 1000 }));
   const sessions = [
     { name: "세션1 패턴 연습", tasks: s1 },
     { name: "세션2 상황 연습", tasks: s2 },
   ];
   if (day > 1) {
     const prev = dayPatterns(day - 1);
-    sessions.push({ name: "세션3 어제 복습", tasks: oneExampleTasks(prev, 2, true) });
+    sessions.push({ name: "세션3 어제 복습", tasks: oneExampleTasks(prev, 2, true, 1000) });
     const pool = PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
     const picks = getReviewPicks(day, pool);
     sessions.push({ name: "세션4 전체 복습", tasks: oneExampleTasks(picks, 2, true) });

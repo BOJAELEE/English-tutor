@@ -36,6 +36,21 @@ const fromText = context.__parseTrainingPrompt(
 );
 assert.equal(fromText.target_en, target, "기존 네 줄 형식도 계속 읽어야 합니다.");
 
+const withoutSituation = {
+  ...expected,
+  situation: "",
+};
+assert.equal(
+  context.__parseTrainingPrompt(JSON.stringify(withoutSituation), true, false).target_ko,
+  expected.target_ko,
+  "상황을 표시하지 않는 세션은 빈 상황 안내를 허용해야 합니다."
+);
+assert.equal(
+  context.__parseTrainingPrompt(JSON.stringify(withoutSituation), true),
+  null,
+  "상황을 표시하는 세션은 빈 상황 안내를 허용하면 안 됩니다."
+);
+
 const tooLong = {
   ...expected,
   situation: "친구가 주말마다 외식하는지 물어보고 가족의 식습관까지 자세히 설명하는 상황입니다.",
@@ -45,6 +60,7 @@ assert.equal(context.__parseTrainingPrompt(JSON.stringify(tooLong), true), null,
 assert.match(app, /const TRAINING_REQUEST_TIMEOUT_MS = 30000/, "훈련 안내에는 별도 대기 시간이 필요합니다.");
 assert.match(app, /const MAX_TRAINING_SITUATION_LENGTH = 28/, "상황 설명의 최대 길이가 필요합니다.");
 assert.match(app, /training_v10_short_t/, "기존의 긴 안내 캐시는 재사용하면 안 됩니다.");
+assert.match(app, /_nosituation/, "상황 없는 세션은 별도 캐시를 사용해야 합니다.");
 assert.match(app, /responseJson: true/, "훈련 안내 요청은 JSON 응답을 요청해야 합니다.");
 assert.match(app, /function fetchWithTimeout\(url, options = \{\}, timeoutMs = LLM_REQUEST_TIMEOUT_MS\)/, "요청별 시간 제한을 전달할 수 있어야 합니다.");
 assert.match(app, /async function callClaude[\s\S]*?\}, options\.timeoutMs\);/, "Claude 훈련 안내에 별도 시간 제한을 적용해야 합니다.");
