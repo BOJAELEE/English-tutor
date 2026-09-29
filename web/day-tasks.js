@@ -10,33 +10,32 @@ function dayPatterns(day) {
   return PATTERNS.slice(start, start + PATTERNS_PER_DAY);
 }
 
-/* 세션4 복습 선택을 날짜별로 고정하고, 아직 나오지 않은 구동사·일반 패턴을 먼저 고른다. */
+/* 세션4는 전일 복습과 겹치지 않는 이전 패턴에서 날짜별로 고른다. */
 function getReviewPicks(day, pool) {
-  const key = "reviewPicks_v3_" + day;
+  const key = "reviewPicks_v4_" + day;
   let cachedNums = null;
   try { cachedNums = JSON.parse(localStorage.getItem(key)); } catch {}
   if (Array.isArray(cachedNums)) {
     const found = cachedNums.map(n => pool.find(p => p.num === n)).filter(Boolean);
     if (found.length === 2 && isPhrasalPattern(found[0]) !== isPhrasalPattern(found[1])) return found;
   }
-  const phrasal = pool.filter(isPhrasalPattern);
-  const regular = pool.filter(p => !isPhrasalPattern(p));
-  const previousNums = isPhrasal => {
-    const nums = new Set();
-    for (let reviewDay = 2; reviewDay < day; reviewDay++) {
-      const previousPool = PATTERNS.slice(0, (reviewDay - 1) * PATTERNS_PER_DAY);
-      const previousPicks = getReviewPicks(reviewDay, previousPool);
-      previousPicks.filter(p => isPhrasalPattern(p) === isPhrasal).forEach(p => nums.add(p.num));
-    }
-    return nums;
+  const yesterday = new Set(dayPatterns(day - 1).map(p => p.num));
+  const older = patterns => {
+    const eligible = patterns.filter(p => !yesterday.has(p.num));
+    return eligible.length ? eligible : patterns;
   };
-  const pick = (patterns, isPhrasal) => {
-    const unseen = patterns.filter(p => !previousNums(isPhrasal).has(p.num));
-    const choices = unseen.length ? unseen : patterns;
-    return choices[(day - 2) % choices.length];
+  const phrasal = older(pool.filter(isPhrasalPattern));
+  const regular = older(pool.filter(p => !isPhrasalPattern(p)));
+  const previousPicks = day > 2
+    ? getReviewPicks(day - 1, PATTERNS.slice(0, (day - 2) * PATTERNS_PER_DAY))
+    : [];
+  const pick = (patterns, offset) => {
+    const fresh = patterns.filter(p => !previousPicks.some(previous => previous.num === p.num));
+    const choices = fresh.length ? fresh : patterns;
+    return choices[Math.floor(((day * 0.618033988749895 + offset) % 1) * choices.length)];
   };
   const picks = phrasal.length && regular.length
-    ? [pick(phrasal, true), pick(regular, false)]
+    ? [pick(phrasal, 0), pick(regular, 0.5)]
     : pool.slice(0, Math.min(2, pool.length));
   localStorage.setItem(key, JSON.stringify(picks.map(p => p.num)));
   return picks;

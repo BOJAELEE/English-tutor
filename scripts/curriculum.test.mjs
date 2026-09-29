@@ -51,7 +51,14 @@ for (let day = 1; day <= TOTAL_DAYS; day++) {
     assert.notEqual(isPhrasalPattern(reviewTasks[0].p), isPhrasalPattern(reviewTasks[1].p), `Day ${day} 전체 복습은 구동사와 일반 패턴을 하나씩 골라야 합니다.`);
     reviewTasks.forEach(task => {
       const type = isPhrasalPattern(task.p) ? "phrasal" : "regular";
-      assert.notEqual(task.p.num, previousReviewNums[type], `Day ${day} 전체 복습은 직전 날의 같은 ${type} 패턴을 반복하면 안 됩니다.`);
+      const olderOfType = patterns.slice(0, (day - 2) * 2)
+        .filter(p => isPhrasalPattern(p) === isPhrasalPattern(task.p));
+      if (olderOfType.length) {
+        assert.ok(!previousTasks.some(previous => previous.p.num === task.p.num), `Day ${day} 전체 복습은 어제 복습과 겹치면 안 됩니다.`);
+      }
+      if (olderOfType.length > 1) {
+        assert.notEqual(task.p.num, previousReviewNums[type], `Day ${day} 전체 복습은 직전 날의 같은 ${type} 패턴을 반복하면 안 됩니다.`);
+      }
       previousReviewNums[type] = task.p.num;
     });
   }
@@ -63,9 +70,9 @@ for (let day = 1; day <= TOTAL_DAYS; day++) {
 const reviewNums = day => buildSessions(day)
   .find(session => session.name === "세션4 전체 복습").tasks.map(task => task.p.num);
 assert.equal(JSON.stringify(reviewNums(2)), JSON.stringify([1, 2]), "첫 전체 복습은 첫 구동사와 일반 패턴을 골라야 합니다.");
-assert.equal(JSON.stringify(reviewNums(3)), JSON.stringify([3, 4]), "전체 복습은 다음 구동사와 일반 패턴으로 순환해야 합니다.");
-assert.equal(JSON.stringify(reviewNums(4)), JSON.stringify([5, 6]), "전체 복습은 같은 구동사에 고정되면 안 됩니다.");
-assert.match(taskCode, /reviewPicks_v3_/, "기존의 고정 복습 선택값을 재사용하면 안 됩니다.");
+assert.equal(JSON.stringify(reviewNums(3)), JSON.stringify([1, 2]), "Day 3은 전일 패턴 대신 Day 1 패턴을 복습해야 합니다.");
+assert.ok(reviewNums(4).every(num => num <= 4), "Day 4 전체 복습은 전일 패턴 5·6을 제외해야 합니다.");
+assert.match(taskCode, /reviewPicks_v4_/, "전일 복습과 겹치는 기존 선택값을 재사용하면 안 됩니다.");
 
 assert.doesNotMatch(app, /연결이 지연되어 다음 문제로 넘어갑니다/, "연결 지연 때문에 문제를 자동으로 건너뛰면 안 됩니다.");
 assert.doesNotMatch(app, /koreanPatternMeaning|basicTrainingPrompt|prompt\.isFallback/, "문법 표기를 임시 안내문으로 쓰면 안 됩니다.");
