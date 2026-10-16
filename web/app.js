@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "250-master-patterns-v3";
+const CURRICULUM_VERSION = "204-practical-patterns-v1";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -48,6 +48,15 @@ const LS = {
 
 function applyCurriculumVersion() {
   if (localStorage.getItem("curriculumVersion") === CURRICULUM_VERSION) return;
+  let mappedProgress = null;
+  if (localStorage.getItem("curriculumVersion") === "250-master-patterns-v3") {
+    let oldProgress;
+    try { oldProgress = JSON.parse(localStorage.getItem("progress")); } catch { oldProgress = null; }
+    if (oldProgress && Number.isInteger(oldProgress.day) && oldProgress.day >= 1) {
+      const finished = oldProgress.pos >= (oldProgress.day === 1 ? 9 : 13);
+      mappedProgress = { day: mapLegacyDayToCurated(oldProgress.day + (finished ? 1 : 0)), pos: 0 };
+    }
+  }
   localStorage.removeItem("progress");
   localStorage.removeItem("promptCache");
   for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -55,8 +64,16 @@ function applyCurriculumVersion() {
     if (key && key.startsWith("reviewPicks_")) localStorage.removeItem(key);
   }
   localStorage.setItem("curriculumVersion", CURRICULUM_VERSION);
+  if (mappedProgress) localStorage.setItem("progress", JSON.stringify(mappedProgress));
 }
 applyCurriculumVersion();
+if (!localStorage.getItem("twoDayReviewProgressV1")) {
+  let savedProgress;
+  try { savedProgress = JSON.parse(localStorage.getItem("progress")); } catch { savedProgress = null; }
+  const migrated = migrateProgressForTwoDayReview(savedProgress);
+  if (migrated !== savedProgress) localStorage.setItem("progress", JSON.stringify(migrated));
+  localStorage.setItem("twoDayReviewProgressV1", "1");
+}
 
 /* ==================== 음성: TTS ==================== */
 let voices = [];
@@ -1300,6 +1317,8 @@ const SESSION_INTROS = {
   "세션2 상황 연습": "세션 2, 오늘 상황 연습입니다.",
   "세션3 어제 복습": "세션 3, 어제 복습입니다.",
   "세션4 전체 복습": "세션 4, 전체 복습입니다.",
+  "세션4 2일 전 복습": "세션 4, 2일 전 복습입니다.",
+  "세션5 전체 복습": "세션 5, 전체 복습입니다.",
   "마무리 일상 회화": "마무리 일상 회화입니다.",
 };
 
@@ -1406,7 +1425,7 @@ function refreshHome() {
   $("btn-home-day-next").disabled = prog.day >= TOTAL_DAYS;
   const pats = dayPatterns(prog.day);
   const lines = pats.map(p => "패턴 " + p.num + ". " + p.title);
-  if (prog.day > 1) lines.push("+ 어제 복습 " + PATTERNS_PER_DAY + "개, 전체 복습 2개");
+  if (prog.day > 1) lines.push("+ 어제 복습 " + PATTERNS_PER_DAY + "개" + (prog.day > 2 ? ", 2일 전 복습 " + PATTERNS_PER_DAY + "개" : "") + ", 전체 복습 2개");
   lines.push("+ 마무리 일상 회화");
   $("home-plan").innerHTML = lines.join("<br>");
   const engineName = LS.engine === "gemini" ? "Gemini" : "Claude";

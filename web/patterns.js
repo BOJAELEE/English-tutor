@@ -37,15 +37,6 @@ const PATTERNS = [
     },
     {
         "num": 5,
-        "title": "Head back (돌아가다).",
-        "examples": [
-            "I'd better head back home.",
-            "We headed back after dinner.",
-            "Are you ready to head back?"
-        ]
-    },
-    {
-        "num": 6,
         "title": "I get the feeling (that) + 문장.",
         "examples": [
             "I get the feeling that the landlord is still considering our request.",
@@ -54,7 +45,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 7,
+        "num": 6,
         "title": "Stop by (잠깐 들르다).",
         "examples": [
             "I'll stop by the store on my way home.",
@@ -63,7 +54,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 8,
+        "num": 7,
         "title": "I tend to + 동사원형.",
         "examples": [
             "I tend to do my grocery shopping on Sundays.",
@@ -72,7 +63,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 9,
+        "num": 8,
         "title": "Hang out (함께 어울리다).",
         "examples": [
             "Do you want to hang out this weekend?",
@@ -81,7 +72,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 10,
+        "num": 9,
         "title": "What do you recommend for + 명사?",
         "examples": [
             "What do you recommend for a starter?",
@@ -90,7 +81,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 11,
+        "num": 10,
         "title": "Go out (외출하다 / 데이트하다).",
         "examples": [
             "Do you want to go out for dinner tonight?",
@@ -99,7 +90,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 12,
+        "num": 11,
         "title": "I happen to + 동사원형.",
         "examples": [
             "I happen to have an extra phone charger.",
@@ -108,7 +99,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 13,
+        "num": 12,
         "title": "Eat out (외식하다).",
         "examples": [
             "We don't eat out very often.",
@@ -117,7 +108,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 14,
+        "num": 13,
         "title": "I can't make it + 시간 / 행사.",
         "examples": [
             "I can't make it to dinner tonight.",
@@ -126,16 +117,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 15,
-        "title": "Stay over (밤을 지내다).",
-        "examples": [
-            "Do you want to stay over tonight?",
-            "She stayed over after the party.",
-            "You're welcome to stay over if it gets too late."
-        ]
-    },
-    {
-        "num": 16,
+        "num": 14,
         "title": "I can't afford to + 동사원형.",
         "examples": [
             "I can't afford to miss another day of work.",
@@ -144,7 +126,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 17,
+        "num": 15,
         "title": "Pick up (태우러 가다 / 사 오다 / 익히다).",
         "examples": [
             "Can you pick me up from the station?",
@@ -153,7 +135,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 18,
+        "num": 16,
         "title": "I wouldn't count on + 명사 / -ing.",
         "examples": [
             "I wouldn't count on the bus being on time in this weather.",
@@ -162,7 +144,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 19,
+        "num": 17,
         "title": "Drop off (내려주다 / 잠깐 두고 가다).",
         "examples": [
             "Can you drop me off near the entrance?",
@@ -171,7 +153,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 20,
+        "num": 18,
         "title": "Could you tell me more about + 명사?",
         "examples": [
             "Could you tell me more about this dish?",
@@ -180,7 +162,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 21,
+        "num": 19,
         "title": "Show up (나타나다 / 참석하다).",
         "examples": [
             "He didn't show up for dinner.",
@@ -189,7 +171,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 22,
+        "num": 20,
         "title": "How long does it take to + 동사원형?",
         "examples": [
             "How long does it take to get to the airport from here?",
@@ -198,16 +180,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 23,
-        "title": "Turn up (나타나다 / 발견되다).",
-        "examples": [
-            "She turned up an hour late.",
-            "My missing keys finally turned up.",
-            "I wasn't sure if anyone would turn up."
-        ]
-    },
-    {
-        "num": 24,
+        "num": 21,
         "title": "It's worth + -ing.",
         "examples": [
             "It's worth calling ahead before you go.",
@@ -216,16 +189,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 25,
-        "title": "End up + -ing (결국 ~하게 되다).",
-        "examples": [
-            "We ended up taking a taxi home.",
-            "I thought it would be quick, but it ended up taking all day.",
-            "Where did you end up going for dinner?"
-        ]
-    },
-    {
-        "num": 26,
+        "num": 22,
         "title": "It doesn't hurt to + 동사원형.",
         "examples": [
             "It doesn't hurt to ask for a discount.",
@@ -234,7 +198,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 27,
+        "num": 23,
         "title": "Get back (돌아오다 / 되돌려받다).",
         "examples": [
             "What time did you get back last night?",
@@ -243,7 +207,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 28,
+        "num": 24,
         "title": "I was supposed to + 동사원형, but + 문장.",
         "examples": [
             "I was supposed to receive the package today, but it never arrived.",
@@ -252,16 +216,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 29,
-        "title": "Get back to + 사람 (회신하다 / 다시 연락하다).",
-        "examples": [
-            "I'll get back to you as soon as I know.",
-            "Sorry, I didn't get back to you sooner.",
-            "Can you get back to me by tomorrow?"
-        ]
-    },
-    {
-        "num": 30,
+        "num": 25,
         "title": "I'm allergic to + 명사",
         "examples": [
             "I'm allergic to nuts.",
@@ -270,7 +225,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 31,
+        "num": 26,
         "title": "Hold on (잠깐 기다리다).",
         "examples": [
             "Hold on—I need to grab my keys.",
@@ -279,7 +234,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 32,
+        "num": 27,
         "title": "I was told (that) + 문장.",
         "examples": [
             "I was told that the repair would be covered.",
@@ -288,7 +243,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 33,
+        "num": 28,
         "title": "Go ahead (계속하다 / 먼저 하다).",
         "examples": [
             "Go ahead and start without me.",
@@ -297,7 +252,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 34,
+        "num": 29,
         "title": "I take it (that) + 문장?",
         "examples": [
             "I take it that breakfast is included?",
@@ -306,16 +261,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 35,
-        "title": "Catch up (밀린 일을 처리하다 / 근황을 나누다).",
-        "examples": [
-            "I need the weekend to catch up on sleep.",
-            "Let's catch up over coffee sometime.",
-            "I'm still catching up on the work I missed."
-        ]
-    },
-    {
-        "num": 36,
+        "num": 30,
         "title": "I'm trying to + 동사원형",
         "examples": [
             "I'm trying to check in, but the kiosk isn't reading my passport.",
@@ -324,7 +270,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 37,
+        "num": 31,
         "title": "Keep up (따라가다 / 계속 유지하다).",
         "examples": [
             "Walk a little slower—I can't keep up.",
@@ -333,7 +279,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 38,
+        "num": 32,
         "title": "That's not quite what I meant.",
         "examples": [
             "That's not quite what I meant—I only need it for one day.",
@@ -342,16 +288,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 39,
-        "title": "Fall behind (뒤처지다).",
-        "examples": [
-            "I fell behind on my messages this week.",
-            "Don't fall behind on your bills.",
-            "She fell behind because she was sick."
-        ]
-    },
-    {
-        "num": 40,
+        "num": 33,
         "title": "Can you make this dish + 형용사?",
         "examples": [
             "Can you make this dish less spicy?",
@@ -360,7 +297,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 41,
+        "num": 34,
         "title": "Run into + 사람/문제 (우연히 마주치다 / 문제에 부딪히다).",
         "examples": [
             "I ran into an old friend downtown.",
@@ -369,7 +306,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 42,
+        "num": 35,
         "title": "I want to make sure (that) + 문장",
         "examples": [
             "I want to make sure the reservation is under my name.",
@@ -378,16 +315,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 43,
-        "title": "Bump into + 사람 (우연히 마주치다).",
-        "examples": [
-            "I bumped into my teacher at the mall.",
-            "We bumped into each other on the subway.",
-            "I can't believe I bumped into you here."
-        ]
-    },
-    {
-        "num": 44,
+        "num": 36,
         "title": "I'm not convinced (that) + 문장.",
         "examples": [
             "I'm not convinced that the problem is completely fixed.",
@@ -396,16 +324,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 45,
-        "title": "Come across + 명사 (우연히 발견하다).",
-        "examples": [
-            "I came across your old photo yesterday.",
-            "Have you come across any good cafés nearby?",
-            "I came across this article and thought of you."
-        ]
-    },
-    {
-        "num": 46,
+        "num": 37,
         "title": "Let me + 동사원형",
         "examples": [
             "Let me check the bus schedule for you.",
@@ -414,7 +333,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 47,
+        "num": 38,
         "title": "Look for + 명사 (찾다).",
         "examples": [
             "I'm looking for a quiet place to work.",
@@ -423,7 +342,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 48,
+        "num": 39,
         "title": "I'm leaning toward + 명사 / -ing.",
         "examples": [
             "I'm leaning toward taking the earlier flight.",
@@ -432,16 +351,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 49,
-        "title": "Look around (둘러보다).",
-        "examples": [
-            "Do you mind if I look around?",
-            "We looked around before choosing an apartment.",
-            "Take your time and look around."
-        ]
-    },
-    {
-        "num": 50,
+        "num": 40,
         "title": "Could we have the bill, please?",
         "examples": [
             "Could we have the bill, please?",
@@ -450,7 +360,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 51,
+        "num": 41,
         "title": "Check out + 명사 (확인해 보다 / 가 보다).",
         "examples": [
             "Check out this new coffee shop near my office.",
@@ -459,7 +369,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 52,
+        "num": 42,
         "title": "I'd prefer + 명사 / to + 동사원형",
         "examples": [
             "I'd prefer a table outside if one is available.",
@@ -468,16 +378,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 53,
-        "title": "Look forward to + 명사/-ing (기대하다).",
-        "examples": [
-            "I'm really looking forward to seeing you.",
-            "We look forward to hearing from you.",
-            "What are you looking forward to this week?"
-        ]
-    },
-    {
-        "num": 54,
+        "num": 43,
         "title": "I'm wondering whether + 문장.",
         "examples": [
             "I'm wondering whether the office is open on Saturday.",
@@ -486,7 +387,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 55,
+        "num": 44,
         "title": "Get along with + 사람 (잘 지내다).",
         "examples": [
             "Do you get along with your coworkers?",
@@ -495,7 +396,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 56,
+        "num": 45,
         "title": "I'd rather + 동사원형",
         "examples": [
             "I'd rather walk than wait for another bus.",
@@ -504,16 +405,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 57,
-        "title": "Fall out with + 사람 (사이가 틀어지다).",
-        "examples": [
-            "They fell out over something small.",
-            "I don't want us to fall out over this.",
-            "Have you two fallen out again?"
-        ]
-    },
-    {
-        "num": 58,
+        "num": 46,
         "title": "I'd feel better if + 문장.",
         "examples": [
             "I'd feel better if you could send me the confirmation by email.",
@@ -522,16 +414,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 59,
-        "title": "Make up (화해하다).",
-        "examples": [
-            "We argued, but we made up the next day.",
-            "Why don't you call her and make up?",
-            "They always make up after a fight."
-        ]
-    },
-    {
-        "num": 60,
+        "num": 47,
         "title": "I'll pay with + 결제수단",
         "examples": [
             "I'll pay with my credit card.",
@@ -540,16 +423,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 61,
-        "title": "Break up (헤어지다 / 끝나다).",
-        "examples": [
-            "They broke up a few months ago.",
-            "The meeting broke up around six.",
-            "It's hard to stay friends after you break up."
-        ]
-    },
-    {
-        "num": 62,
+        "num": 48,
         "title": "Would you like to + 동사원형?",
         "examples": [
             "Would you like to join us for dinner tonight?",
@@ -558,16 +432,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 63,
-        "title": "Ask + 사람 + out (데이트 신청하다).",
-        "examples": [
-            "He finally asked her out for coffee.",
-            "Would it be weird if I asked him out?",
-            "She was too shy to ask anyone out."
-        ]
-    },
-    {
-        "num": 64,
+        "num": 49,
         "title": "I'm concerned about + 명사 / -ing.",
         "examples": [
             "I'm concerned about the extra charge on my bill.",
@@ -576,7 +441,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 65,
+        "num": 50,
         "title": "Turn down + 제안/요청 (거절하다).",
         "examples": [
             "I had to turn down the invitation.",
@@ -585,7 +450,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 66,
+        "num": 51,
         "title": "What concerns me is (that) + 문장.",
         "examples": [
             "What concerns me is that the lock doesn't work properly.",
@@ -594,7 +459,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 67,
+        "num": 52,
         "title": "Calm down (진정하다).",
         "examples": [
             "Take a breath and calm down.",
@@ -603,7 +468,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 68,
+        "num": 53,
         "title": "Would it be okay if + 문장?",
         "examples": [
             "Would it be okay if I paid the balance tomorrow morning?",
@@ -612,7 +477,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 69,
+        "num": 54,
         "title": "Cheer up (기운 내다 / 기운을 북돋우다).",
         "examples": [
             "Cheer up—things will get better.",
@@ -621,7 +486,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 70,
+        "num": 55,
         "title": "I'm just browsing, thanks",
         "examples": [
             "I'm just browsing, thanks.",
@@ -630,16 +495,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 71,
-        "title": "Open up (마음을 열다 / 솔직하게 말하다).",
-        "examples": [
-            "It took him a while to open up.",
-            "She opened up about what happened.",
-            "I find it hard to open up to strangers."
-        ]
-    },
-    {
-        "num": 72,
+        "num": 56,
         "title": "Do you mind if + 문장?",
         "examples": [
             "Do you mind if I open the window?",
@@ -648,7 +504,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 73,
+        "num": 57,
         "title": "Hang up (전화를 끊다).",
         "examples": [
             "Don't hang up—I have one more question.",
@@ -657,7 +513,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 74,
+        "num": 58,
         "title": "I wouldn't mind + -ing.",
         "examples": [
             "I wouldn't mind sharing a ride if you're going that way.",
@@ -666,7 +522,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 75,
+        "num": 59,
         "title": "Call back (다시 전화하다).",
         "examples": [
             "Can I call you back in ten minutes?",
@@ -675,7 +531,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 76,
+        "num": 60,
         "title": "Would you mind + -ing?",
         "examples": [
             "Would you mind lowering the music a little?",
@@ -684,7 +540,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 77,
+        "num": 61,
         "title": "Cut off (끊다 / 차단하다).",
         "examples": [
             "We got cut off in the middle of the call.",
@@ -693,7 +549,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 78,
+        "num": 62,
         "title": "I'd be happy to + 동사원형.",
         "examples": [
             "I'd be happy to show you where the laundry room is.",
@@ -702,7 +558,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 79,
+        "num": 63,
         "title": "Speak up (더 크게 말하다 / 의견을 말하다).",
         "examples": [
             "Could you speak up a little?",
@@ -711,7 +567,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 80,
+        "num": 64,
         "title": "Do you have this in size + [치수]?",
         "examples": [
             "Do you have this wool jacket in size large?",
@@ -720,7 +576,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 81,
+        "num": 65,
         "title": "Bring up + 주제 (화제를 꺼내다).",
         "examples": [
             "I didn't want to bring up money tonight.",
@@ -729,7 +585,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 82,
+        "num": 66,
         "title": "I don't feel like + -ing.",
         "examples": [
             "I don't feel like cooking tonight.",
@@ -738,7 +594,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 83,
+        "num": 67,
         "title": "Point out + 내용 (지적하다 / 알려 주다).",
         "examples": [
             "Thanks for pointing that out.",
@@ -747,7 +603,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 84,
+        "num": 68,
         "title": "I can't help + -ing.",
         "examples": [
             "I can't help worrying about the delay.",
@@ -756,7 +612,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 85,
+        "num": 69,
         "title": "Find out + 의문사절 (알아내다).",
         "examples": [
             "I'll find out and get back to you.",
@@ -765,7 +621,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 86,
+        "num": 70,
         "title": "What do you mean by + 명사 / -ing?",
         "examples": [
             "What do you mean by “processing fee”?",
@@ -774,7 +630,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 87,
+        "num": 71,
         "title": "Figure out + 의문사절 (이해하다 / 해결 방법을 찾다).",
         "examples": [
             "I can't figure out how this app works.",
@@ -783,7 +639,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 88,
+        "num": 72,
         "title": "I've been meaning to + 동사원형.",
         "examples": [
             "I've been meaning to call you about the rent.",
@@ -792,7 +648,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 89,
+        "num": 73,
         "title": "Work out (잘 풀리다 / 해결하다).",
         "examples": [
             "I'm sure everything will work out.",
@@ -801,7 +657,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 90,
+        "num": 74,
         "title": "Can I try this on?",
         "examples": [
             "Can I try this on in the fitting room?",
@@ -810,16 +666,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 91,
-        "title": "Sort out + 문제 (정리하다 / 해결하다).",
-        "examples": [
-            "We'll sort it out tomorrow.",
-            "I need to sort out my schedule first.",
-            "Don't worry—we can sort this out."
-        ]
-    },
-    {
-        "num": 92,
+        "num": 75,
         "title": "I've got + 명사 / to + 동사원형.",
         "examples": [
             "I've got a dentist appointment at three.",
@@ -828,7 +675,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 93,
+        "num": 76,
         "title": "Deal with + 문제/사람 (처리하다 / 대처하다).",
         "examples": [
             "I'll deal with that later.",
@@ -837,7 +684,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 94,
+        "num": 77,
         "title": "I didn't catch + 단어 / that.",
         "examples": [
             "I didn't catch your name.",
@@ -846,16 +693,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 95,
-        "title": "Get over + 문제/감정 (극복하다).",
-        "examples": [
-            "It took me a while to get over the disappointment.",
-            "You'll get over it with time.",
-            "I still haven't gotten over that cold."
-        ]
-    },
-    {
-        "num": 96,
+        "num": 78,
         "title": "It took me + 시간 + to + 동사원형.",
         "examples": [
             "It took me an hour to get here in traffic.",
@@ -864,7 +702,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 97,
+        "num": 79,
         "title": "Put up with + 명사/-ing (참다 / 감수하다).",
         "examples": [
             "I can't put up with this noise anymore.",
@@ -873,7 +711,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 98,
+        "num": 80,
         "title": "So, you mean (that) + 문장?",
         "examples": [
             "So, you mean the rent includes water but not electricity?",
@@ -882,16 +720,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 99,
-        "title": "Get used to + 명사/-ing (익숙해지다).",
-        "examples": [
-            "I'm still getting used to my new schedule.",
-            "You'll get used to speaking English every day.",
-            "It took me a while to get used to the noise."
-        ]
-    },
-    {
-        "num": 100,
+        "num": 81,
         "title": "Do you have this in a different color?",
         "examples": [
             "Do you have this in a different color?",
@@ -900,16 +729,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 101,
-        "title": "Look after + 사람/동물 (돌보다).",
-        "examples": [
-            "Can you look after my cat this weekend?",
-            "She looks after her grandparents every day.",
-            "Don't worry—I'll look after everything."
-        ]
-    },
-    {
-        "num": 102,
+        "num": 82,
         "title": "I'm getting used to + 명사 / -ing.",
         "examples": [
             "I'm getting used to driving on this side of the road.",
@@ -918,16 +738,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 103,
-        "title": "Take care of + 일/사람 (처리하다 / 돌보다).",
-        "examples": [
-            "I'll take care of the reservation.",
-            "Can you take care of the kids for an hour?",
-            "The company took care of the repair cost."
-        ]
-    },
-    {
-        "num": 104,
+        "num": 83,
         "title": "I'm not sure if + 문장",
         "examples": [
             "I'm not sure if I can make it by six.",
@@ -936,16 +747,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 105,
-        "title": "Get around to + -ing (미루던 일을 마침내 하다).",
-        "examples": [
-            "I still haven't gotten around to replying to her.",
-            "When will you get around to fixing the door?",
-            "I finally got around to reading that book."
-        ]
-    },
-    {
-        "num": 106,
+        "num": 84,
         "title": "I'm used to + 명사 / -ing.",
         "examples": [
             "I'm used to taking public transportation.",
@@ -954,7 +756,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 107,
+        "num": 85,
         "title": "Put off + 명사/-ing (미루다).",
         "examples": [
             "Don't put off the conversation any longer.",
@@ -963,7 +765,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 108,
+        "num": 86,
         "title": "I might as well + 동사원형.",
         "examples": [
             "The bus is late, so I might as well walk.",
@@ -972,7 +774,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 109,
+        "num": 87,
         "title": "Keep on + -ing (계속 ~하다).",
         "examples": [
             "He kept on talking even after I left.",
@@ -981,7 +783,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 110,
+        "num": 88,
         "title": "This is too + 형용사",
         "examples": [
             "This is unfortunately too loose around the shoulders.",
@@ -990,16 +792,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 111,
-        "title": "Carry on (계속하다).",
-        "examples": [
-            "Please carry on—I didn't mean to interrupt.",
-            "We carried on talking long after dinner.",
-            "Despite the delay, the show carried on."
-        ]
-    },
-    {
-        "num": 112,
+        "num": 89,
         "title": "I'd better + 동사원형.",
         "examples": [
             "I'd better head home before it starts raining.",
@@ -1008,16 +801,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 113,
-        "title": "Come up (일이나 문제가 생기다).",
-        "examples": [
-            "Something came up, so I need to reschedule.",
-            "Let me know if anything comes up.",
-            "A few questions came up during dinner."
-        ]
-    },
-    {
-        "num": 114,
+        "num": 90,
         "title": "I would have + 과거분사, but + 문장.",
         "examples": [
             "I would have called, but I lost your number.",
@@ -1026,7 +810,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 115,
+        "num": 91,
         "title": "Turn out (결과적으로 ~이다 / 밝혀지다).",
         "examples": [
             "It turned out better than I expected.",
@@ -1035,7 +819,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 116,
+        "num": 92,
         "title": "I'm not sure I agree (with / that) + ...",
         "examples": [
             "I'm not sure I agree that this is the cheapest option.",
@@ -1044,7 +828,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 117,
+        "num": 93,
         "title": "Go through + 경험/과정 (겪다 / 검토하다).",
         "examples": [
             "She's going through a difficult time.",
@@ -1053,7 +837,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 118,
+        "num": 94,
         "title": "I could have + 과거분사.",
         "examples": [
             "I could have taken the earlier train.",
@@ -1062,16 +846,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 119,
-        "title": "Back + 사람 + up (편들다 / 뒷받침하다).",
-        "examples": [
-            "Thanks for backing me up.",
-            "Can you back me up if they ask?",
-            "Her story backed up what I said."
-        ]
-    },
-    {
-        "num": 120,
+        "num": 95,
         "title": "Can I return or exchange this + 기간 / 조건?",
         "examples": [
             "Can I return this later with the receipt?",
@@ -1080,16 +855,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 121,
-        "title": "Pick on + 사람 (괴롭히다 / 흠잡다).",
-        "examples": [
-            "Why are you always picking on me?",
-            "Kids can be cruel when they pick on someone.",
-            "Don't pick on him just because he's quiet."
-        ]
-    },
-    {
-        "num": 122,
+        "num": 96,
         "title": "It depends on + 명사 / 의문사절",
         "examples": [
             "It depends on the traffic.",
@@ -1098,16 +864,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 123,
-        "title": "Show off (자랑하다 / 뽐내다).",
-        "examples": [
-            "He's always showing off his new phone.",
-            "I wasn't trying to show off.",
-            "She likes to show off when she's good at something."
-        ]
-    },
-    {
-        "num": 124,
+        "num": 97,
         "title": "I should have + 과거분사.",
         "examples": [
             "I should have brought an umbrella.",
@@ -1116,16 +873,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 125,
-        "title": "Put + 사람 + down (깔보다 / 비하하다).",
-        "examples": [
-            "You don't need to put other people down.",
-            "He keeps putting himself down.",
-            "I felt hurt when she put me down in front of everyone."
-        ]
-    },
-    {
-        "num": 126,
+        "num": 98,
         "title": "I was about to + 동사원형 when + 문장.",
         "examples": [
             "I was about to leave when the delivery arrived.",
@@ -1134,7 +882,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 127,
+        "num": 99,
         "title": "Mess up (망치다 / 실수하다).",
         "examples": [
             "I really messed up this time.",
@@ -1143,7 +891,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 128,
+        "num": 100,
         "title": "Are you free + 시간?",
         "examples": [
             "Are you free this Saturday afternoon?",
@@ -1152,16 +900,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 129,
-        "title": "Screw up (큰 실수를 하다 / 망치다).",
-        "examples": [
-            "I screwed up and sent it to the wrong person.",
-            "We all screw up sometimes.",
-            "Don't let one mistake make you think you've screwed everything up."
-        ]
-    },
-    {
-        "num": 130,
+        "num": 101,
         "title": "Where is the nearest [transit stop]?",
         "examples": [
             "Where is the nearest subway station?",
@@ -1170,16 +909,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 131,
-        "title": "Freak out (몹시 당황하거나 흥분하다).",
-        "examples": [
-            "Don't freak out—it's probably nothing serious.",
-            "I freaked out when I couldn't find my phone.",
-            "She tends to freak out under pressure."
-        ]
-    },
-    {
-        "num": 132,
+        "num": 102,
         "title": "The sooner + 문장, the better.",
         "examples": [
             "The sooner we report it, the better.",
@@ -1188,16 +918,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 133,
-        "title": "Chill out (진정하고 편하게 쉬다).",
-        "examples": [
-            "Just chill out—we have plenty of time.",
-            "I want to chill out at home this weekend.",
-            "You need to chill out a little."
-        ]
-    },
-    {
-        "num": 134,
+        "num": 103,
         "title": "Does + 시간 + work for you?",
         "examples": [
             "Does three o'clock work for you?",
@@ -1206,7 +927,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 135,
+        "num": 104,
         "title": "Wind down (긴장을 풀며 마무리하다).",
         "examples": [
             "I need an hour to wind down after work.",
@@ -1215,7 +936,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 136,
+        "num": 105,
         "title": "It would help if + 문장.",
         "examples": [
             "It would help if you could send the tracking number.",
@@ -1224,7 +945,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 137,
+        "num": 106,
         "title": "Burn out (지쳐서 소진되다).",
         "examples": [
             "I don't want to burn out by taking on too much.",
@@ -1233,7 +954,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 138,
+        "num": 107,
         "title": "Would you be able to + 동사원형?",
         "examples": [
             "Would you be able to meet a little earlier?",
@@ -1242,7 +963,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 139,
+        "num": 108,
         "title": "Break down (고장 나다 / 감정이 무너지다).",
         "examples": [
             "My car broke down on the way home.",
@@ -1251,7 +972,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 140,
+        "num": 109,
         "title": "Which bus/train goes to + 명사?",
         "examples": [
             "Which bus goes to the museum?",
@@ -1260,7 +981,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 141,
+        "num": 110,
         "title": "Come down with + 병 (병에 걸리다).",
         "examples": [
             "I think I'm coming down with a cold.",
@@ -1269,7 +990,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 142,
+        "num": 111,
         "title": "It's up to + 사람.",
         "examples": [
             "It's up to the landlord to approve the change.",
@@ -1278,16 +999,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 143,
-        "title": "Throw up (토하다).",
-        "examples": [
-            "I felt so sick that I almost threw up.",
-            "He threw up after eating something bad.",
-            "The medicine made me want to throw up."
-        ]
-    },
-    {
-        "num": 144,
+        "num": 112,
         "title": "Can we move + 일정 + to + 시간?",
         "examples": [
             "Can we move our appointment to Thursday?",
@@ -1296,16 +1008,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 145,
-        "title": "Pass out (기절하다 / 잠들다).",
-        "examples": [
-            "I was so tired that I passed out on the couch.",
-            "She almost passed out from the heat.",
-            "Don't skip meals—you could pass out."
-        ]
-    },
-    {
-        "num": 146,
+        "num": 113,
         "title": "I'll take care of + 명사.",
         "examples": [
             "I'll take care of the electricity bill this month.",
@@ -1314,16 +1017,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 147,
-        "title": "Warm up (몸을 풀다 / 분위기를 풀다).",
-        "examples": [
-            "I need to warm up before I work out.",
-            "Give me a minute to warm up my hands.",
-            "It took a while for everyone to warm up to each other."
-        ]
-    },
-    {
-        "num": 148,
+        "num": 114,
         "title": "Something came up.",
         "examples": [
             "Something came up, so I need to cancel tonight.",
@@ -1332,16 +1026,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 149,
-        "title": "Cool down (열을 식히다 / 진정하다).",
-        "examples": [
-            "Let the food cool down before you eat it.",
-            "I need a few minutes to cool down.",
-            "Walk around and cool down after your workout."
-        ]
-    },
-    {
-        "num": 150,
+        "num": 115,
         "title": "Do I need to transfer at + 명사?",
         "examples": [
             "Do I need to transfer at City Hall?",
@@ -1350,7 +1035,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 151,
+        "num": 116,
         "title": "Clean up (치우다 / 정리하다).",
         "examples": [
             "Can you help me clean up after dinner?",
@@ -1359,7 +1044,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 152,
+        "num": 117,
         "title": "I can work with + 명사 / that.",
         "examples": [
             "I can work with a later delivery date.",
@@ -1368,16 +1053,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 153,
-        "title": "Tidy up (깔끔하게 정돈하다).",
-        "examples": [
-            "I need to tidy up my room.",
-            "Could you tidy up before your friends come over?",
-            "She tidied up the kitchen after breakfast."
-        ]
-    },
-    {
-        "num": 154,
+        "num": 118,
         "title": "I'm running + 시간 + late.",
         "examples": [
             "I'm running about ten minutes late.",
@@ -1386,7 +1062,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 155,
+        "num": 119,
         "title": "Put away + 물건 (제자리에 넣다).",
         "examples": [
             "Can you put away the groceries?",
@@ -1395,7 +1071,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 156,
+        "num": 120,
         "title": "That works for me.",
         "examples": [
             "Thursday at four works for me.",
@@ -1404,7 +1080,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 157,
+        "num": 121,
         "title": "Take out + 쓰레기/음식 (밖으로 내다 / 포장해 가다).",
         "examples": [
             "Can you take out the trash?",
@@ -1413,7 +1089,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 158,
+        "num": 122,
         "title": "I should be there by + 시간.",
         "examples": [
             "I should be there by seven.",
@@ -1422,7 +1098,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 159,
+        "num": 123,
         "title": "Throw out + 물건 (버리다).",
         "examples": [
             "Don't throw out the receipt.",
@@ -1431,7 +1107,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 160,
+        "num": 124,
         "title": "Can you get me a cab to + 명사?",
         "examples": [
             "Can you get me a cab to the airport?",
@@ -1440,7 +1116,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 161,
+        "num": 125,
         "title": "Run out of + 명사 (다 써 버리다).",
         "examples": [
             "We've run out of time.",
@@ -1449,7 +1125,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 162,
+        "num": 126,
         "title": "I don't mind if + 문장.",
         "examples": [
             "I don't mind if you open the window.",
@@ -1458,16 +1134,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 163,
-        "title": "Stock up on + 명사 (미리 충분히 사 두다).",
-        "examples": [
-            "We should stock up on groceries before the storm.",
-            "I stocked up on snacks for the trip.",
-            "People were stocking up on bottled water."
-        ]
-    },
-    {
-        "num": 164,
+        "num": 127,
         "title": "I'm on my way (to + 장소).",
         "examples": [
             "I'm on my way to the station now.",
@@ -1476,7 +1143,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 165,
+        "num": 128,
         "title": "Cut back on + 소비/행동 (줄이다).",
         "examples": [
             "I'm trying to cut back on coffee.",
@@ -1485,7 +1152,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 166,
+        "num": 129,
         "title": "I don't mind + -ing.",
         "examples": [
             "I don't mind waiting a few more minutes.",
@@ -1494,7 +1161,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 167,
+        "num": 130,
         "title": "Save up for + 목표 (돈을 모으다).",
         "examples": [
             "I'm saving up for a trip next year.",
@@ -1503,7 +1170,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 168,
+        "num": 131,
         "title": "I'm about to + 동사원형.",
         "examples": [
             "I'm about to leave the house.",
@@ -1512,7 +1179,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 169,
+        "num": 132,
         "title": "Pay + 사람 + back (돈을 갚다 / 보답하다).",
         "examples": [
             "I'll pay you back next week.",
@@ -1521,7 +1188,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 170,
+        "num": 133,
         "title": "Please drop me off near + 명사",
         "examples": [
             "Please drop me off near the coffee shop.",
@@ -1530,16 +1197,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 171,
-        "title": "Chip in (돈이나 도움을 조금씩 보태다).",
-        "examples": [
-            "Everyone chipped in for her gift.",
-            "Can you chip in and help us move the table?",
-            "We all chipped in to cover the bill."
-        ]
-    },
-    {
-        "num": 172,
+        "num": 134,
         "title": "You're welcome to + 동사원형.",
         "examples": [
             "You're welcome to use the kitchen.",
@@ -1548,7 +1206,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 173,
+        "num": 135,
         "title": "Pay off (성과를 내다 / 빚을 다 갚다).",
         "examples": [
             "All that practice really paid off.",
@@ -1557,7 +1215,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 174,
+        "num": 136,
         "title": "I'm planning to + 동사원형.",
         "examples": [
             "I'm planning to move at the end of the month.",
@@ -1566,16 +1224,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 175,
-        "title": "Try on + 옷 (입어 보다).",
-        "examples": [
-            "Can I try this on?",
-            "She tried on three different jackets.",
-            "I need to try it on before I buy it."
-        ]
-    },
-    {
-        "num": 176,
+        "num": 137,
         "title": "Feel free to + 동사원형.",
         "examples": [
             "Feel free to help yourself to coffee.",
@@ -1584,7 +1233,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 177,
+        "num": 138,
         "title": "Take back + 말/물건 (말을 철회하다 / 반품하다).",
         "examples": [
             "I take back what I said earlier.",
@@ -1593,7 +1242,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 178,
+        "num": 139,
         "title": "I'm thinking of + -ing.",
         "examples": [
             "I'm thinking of taking a night class.",
@@ -1602,7 +1251,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 179,
+        "num": 140,
         "title": "Set up + 약속/기기 (마련하다 / 설정하다).",
         "examples": [
             "Let's set up a time to talk.",
@@ -1611,7 +1260,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 180,
+        "num": 141,
         "title": "I'd like to check in for my flight to + 명사",
         "examples": [
             "I'd like to check in for my flight to New York.",
@@ -1620,7 +1269,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 181,
+        "num": 142,
         "title": "Sign up for + 활동 (신청하다 / 등록하다).",
         "examples": [
             "I signed up for a cooking class.",
@@ -1629,7 +1278,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 182,
+        "num": 143,
         "title": "I'll keep you posted.",
         "examples": [
             "I'll keep you posted on the repair.",
@@ -1638,7 +1287,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 183,
+        "num": 144,
         "title": "Fill out + 양식 (양식을 작성하다).",
         "examples": [
             "Please fill out this form before you leave.",
@@ -1647,7 +1296,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 184,
+        "num": 145,
         "title": "I'm hoping to + 동사원형.",
         "examples": [
             "I'm hoping to find a place closer to work.",
@@ -1656,7 +1305,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 185,
+        "num": 146,
         "title": "Log in (로그인하다).",
         "examples": [
             "I can't log in to my account.",
@@ -1665,7 +1314,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 186,
+        "num": 147,
         "title": "Let me get back to you.",
         "examples": [
             "Let me get back to you after I check my schedule.",
@@ -1674,7 +1323,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 187,
+        "num": 148,
         "title": "Call off + 약속/행사 (취소하다).",
         "examples": [
             "They called off the game because of the rain.",
@@ -1683,7 +1332,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 188,
+        "num": 149,
         "title": "I'm supposed to + 동사원형.",
         "examples": [
             "I'm supposed to meet the technician between two and four.",
@@ -1692,16 +1341,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 189,
-        "title": "Stand by (기다리다 / 곁에서 지지하다).",
-        "examples": [
-            "Please stand by while I check that for you.",
-            "I knew my friends would stand by me.",
-            "Just stand by in case we need help."
-        ]
-    },
-    {
-        "num": 190,
+        "num": 150,
         "title": "Can I get a window/aisle seat?",
         "examples": [
             "Can I get an aisle seat, please?",
@@ -1710,16 +1350,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 191,
-        "title": "Pull off + 어려운 일 (성공적으로 해내다).",
-        "examples": [
-            "I don't know how you pulled that off.",
-            "We pulled off the surprise without anyone noticing.",
-            "Do you think we can pull it off by Friday?"
-        ]
-    },
-    {
-        "num": 192,
+        "num": 151,
         "title": "I'll see if I can + 동사원형.",
         "examples": [
             "I'll see if I can move the appointment.",
@@ -1728,16 +1359,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 193,
-        "title": "Catch on (이해하다 / 유행하다).",
-        "examples": [
-            "It took me a while to catch on.",
-            "Do you catch on when I explain it this way?",
-            "That new dance is really catching on."
-        ]
-    },
-    {
-        "num": 194,
+        "num": 152,
         "title": "I was going to + 동사원형, but ...",
         "examples": [
             "I was going to cook, but we ordered takeout instead.",
@@ -1746,16 +1368,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 195,
-        "title": "Come through (어려움 속에서 도움을 주다 / 기대에 부응하다).",
-        "examples": [
-            "Thanks for coming through when I needed you.",
-            "I knew she would come through for us.",
-            "The payment finally came through."
-        ]
-    },
-    {
-        "num": 196,
+        "num": 153,
         "title": "Would it make sense to + 동사원형?",
         "examples": [
             "Would it make sense to split the bill?",
@@ -1764,16 +1377,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 197,
-        "title": "Hold back (참다 / 감추다).",
-        "examples": [
-            "Don't hold back—tell me what you really think.",
-            "She was holding back tears.",
-            "I had to hold myself back from laughing."
-        ]
-    },
-    {
-        "num": 198,
+        "num": 154,
         "title": "I ended up + -ing.",
         "examples": [
             "I ended up taking a taxi because the train was canceled.",
@@ -1782,7 +1386,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 199,
+        "num": 155,
         "title": "Let + 사람 + down (실망시키다).",
         "examples": [
             "I don't want to let you down.",
@@ -1791,7 +1395,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 200,
+        "num": 156,
         "title": "I have a reservation under + [이름]",
         "examples": [
             "I have a reservation under the name Minwoo Kim.",
@@ -1800,7 +1404,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 201,
+        "num": 157,
         "title": "I used to + 동사원형.",
         "examples": [
             "I used to live near the beach.",
@@ -1809,7 +1413,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 202,
+        "num": 158,
         "title": "What if + 문장?",
         "examples": [
             "What if we meet at the station instead?",
@@ -1818,7 +1422,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 203,
+        "num": 159,
         "title": "I've been + -ing.",
         "examples": [
             "I've been looking for a new apartment.",
@@ -1827,7 +1431,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 204,
+        "num": 160,
         "title": "How about + 명사 / -ing?",
         "examples": [
             "How about meeting at six?",
@@ -1836,7 +1440,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 205,
+        "num": 161,
         "title": "Would you be open to + -ing?",
         "examples": [
             "Would you be open to meeting a little earlier?",
@@ -1845,7 +1449,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 206,
+        "num": 162,
         "title": "The last time I + 과거동사, ...",
         "examples": [
             "The last time I took this bus, it was delayed.",
@@ -1854,7 +1458,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 207,
+        "num": 163,
         "title": "Is there a chance you could + 동사원형?",
         "examples": [
             "Is there a chance you could send it today?",
@@ -1863,7 +1467,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 208,
+        "num": 164,
         "title": "I haven't + 과거분사 + yet.",
         "examples": [
             "I haven't received the email yet.",
@@ -1872,7 +1476,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 209,
+        "num": 165,
         "title": "Is there any flexibility on + 명사?",
         "examples": [
             "Is there any flexibility on the move-in date?",
@@ -1881,7 +1485,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 210,
+        "num": 166,
         "title": "I just + 과거동사.",
         "examples": [
             "I just got home.",
@@ -1890,7 +1494,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 211,
+        "num": 167,
         "title": "Would you consider + -ing?",
         "examples": [
             "Would you consider lowering the rent a little?",
@@ -1899,7 +1503,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 212,
+        "num": 168,
         "title": "I've already + 과거분사.",
         "examples": [
             "I've already paid the bill.",
@@ -1908,7 +1512,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 213,
+        "num": 169,
         "title": "I feel like + -ing / 명사.",
         "examples": [
             "I feel like getting something warm to eat.",
@@ -1917,7 +1521,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 214,
+        "num": 170,
         "title": "I see your point.",
         "examples": [
             "I see your point, especially about the cost.",
@@ -1926,7 +1530,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 215,
+        "num": 171,
         "title": "I'm looking forward to + 명사 / -ing.",
         "examples": [
             "I'm looking forward to seeing the new place.",
@@ -1935,7 +1539,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 216,
+        "num": 172,
         "title": "I can't wait to + 동사원형.",
         "examples": [
             "I can't wait to see the new apartment.",
@@ -1944,7 +1548,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 217,
+        "num": 173,
         "title": "I'm glad (that) + 문장.",
         "examples": [
             "I'm glad you made it home safely.",
@@ -1953,7 +1557,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 218,
+        "num": 174,
         "title": "I'm sorry to hear (that) + 문장.",
         "examples": [
             "I'm sorry to hear that you're not feeling well.",
@@ -1962,7 +1566,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 219,
+        "num": 175,
         "title": "That must be + 형용사.",
         "examples": [
             "That must be frustrating.",
@@ -1971,7 +1575,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 220,
+        "num": 176,
         "title": "I can see why + 문장.",
         "examples": [
             "I can see why you like this neighborhood.",
@@ -1980,7 +1584,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 221,
+        "num": 177,
         "title": "Speaking of + 명사 / -ing, ...",
         "examples": [
             "Speaking of coffee, do you know a good place nearby?",
@@ -1989,7 +1593,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 222,
+        "num": 178,
         "title": "I didn't mean to + 동사원형.",
         "examples": [
             "I didn't mean to interrupt you.",
@@ -1998,16 +1602,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 223,
-        "title": "You know what I mean?",
-        "examples": [
-            "It's one of those days, you know what I mean?",
-            "The bus is always late when you're in a hurry, you know what I mean?",
-            "You want somewhere quiet, you know what I mean?"
-        ]
-    },
-    {
-        "num": 224,
+        "num": 179,
         "title": "I don't mean to + 동사원형, but ...",
         "examples": [
             "I don't mean to complain, but the room is very cold.",
@@ -2016,7 +1611,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 225,
+        "num": 180,
         "title": "What have you been up to?",
         "examples": [
             "What have you been up to lately?",
@@ -2025,7 +1620,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 226,
+        "num": 181,
         "title": "If you don't mind me asking, + 질문",
         "examples": [
             "If you don't mind me asking, how much is the monthly rent?",
@@ -2034,7 +1629,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 227,
+        "num": 182,
         "title": "How did + 일/행사 + go?",
         "examples": [
             "How did your job interview go?",
@@ -2043,7 +1638,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 228,
+        "num": 183,
         "title": "I'd appreciate it if + 문장.",
         "examples": [
             "I'd appreciate it if you could send me the receipt.",
@@ -2052,7 +1647,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 229,
+        "num": 184,
         "title": "What was + it/that + like?",
         "examples": [
             "What was the neighborhood like?",
@@ -2061,7 +1656,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 230,
+        "num": 185,
         "title": "I was hoping you could + 동사원형.",
         "examples": [
             "I was hoping you could check the status of my order.",
@@ -2070,7 +1665,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 231,
+        "num": 186,
         "title": "What do you think about + 명사 / -ing?",
         "examples": [
             "What do you think about taking the train instead?",
@@ -2079,7 +1674,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 232,
+        "num": 187,
         "title": "I was wondering if + 문장.",
         "examples": [
             "I was wondering if you have any rooms available this weekend.",
@@ -2088,7 +1683,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 233,
+        "num": 188,
         "title": "There seems to be a problem with + 명사.",
         "examples": [
             "There seems to be a problem with my bill.",
@@ -2097,7 +1692,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 234,
+        "num": 189,
         "title": "Do you happen to know + 의문사절?",
         "examples": [
             "Do you happen to know where the nearest post office is?",
@@ -2106,7 +1701,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 235,
+        "num": 190,
         "title": "I'm having trouble + -ing / with + 명사.",
         "examples": [
             "I'm having trouble logging into my account.",
@@ -2115,7 +1710,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 236,
+        "num": 191,
         "title": "I wonder if + 문장.",
         "examples": [
             "I wonder if the store has a return policy.",
@@ -2124,16 +1719,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 237,
-        "title": "It turns out (that) + 문장.",
-        "examples": [
-            "It turns out that the store was just around the corner.",
-            "It turns out I had entered the wrong zip code.",
-            "It turns out that the fee was already included."
-        ]
-    },
-    {
-        "num": 238,
+        "num": 192,
         "title": "It won't + 동사원형.",
         "examples": [
             "The door won't lock.",
@@ -2142,7 +1728,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 239,
+        "num": 193,
         "title": "I thought + 과거동사, but ...",
         "examples": [
             "I thought the store closed at nine, but it closes at eight.",
@@ -2151,7 +1737,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 240,
+        "num": 194,
         "title": "It keeps + -ing.",
         "examples": [
             "The app keeps crashing.",
@@ -2160,7 +1746,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 241,
+        "num": 195,
         "title": "I didn't realize (that) + 문장.",
         "examples": [
             "I didn't realize that parking costs extra.",
@@ -2169,7 +1755,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 242,
+        "num": 196,
         "title": "I can't remember + 의문사절 / if절.",
         "examples": [
             "I can't remember where I parked.",
@@ -2178,7 +1764,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 243,
+        "num": 197,
         "title": "I'm afraid + 문장.",
         "examples": [
             "I'm afraid the item is out of stock.",
@@ -2187,7 +1773,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 244,
+        "num": 198,
         "title": "I have no idea + 의문사절.",
         "examples": [
             "I have no idea where my keys are.",
@@ -2196,7 +1782,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 245,
+        "num": 199,
         "title": "I'm pretty sure (that) + 문장.",
         "examples": [
             "I'm pretty sure this is the right platform.",
@@ -2205,7 +1791,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 246,
+        "num": 200,
         "title": "I'd love to, but + 문장.",
         "examples": [
             "I'd love to, but I already have plans tonight.",
@@ -2214,7 +1800,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 247,
+        "num": 201,
         "title": "I may have + 과거분사.",
         "examples": [
             "I may have left my wallet in the taxi.",
@@ -2223,7 +1809,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 248,
+        "num": 202,
         "title": "I might + 동사원형.",
         "examples": [
             "I might be a few minutes late.",
@@ -2232,7 +1818,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 249,
+        "num": 203,
         "title": "I'd rather not + 동사원형.",
         "examples": [
             "I'd rather not drive at night.",
@@ -2241,7 +1827,7 @@ const PATTERNS = [
         ]
     },
     {
-        "num": 250,
+        "num": 204,
         "title": "I don't feel comfortable + -ing / with ...",
         "examples": [
             "I don't feel comfortable sharing my bank details.",

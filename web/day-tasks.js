@@ -2,6 +2,17 @@
 
 const PATTERNS_PER_DAY = 2;
 const TOTAL_DAYS = Math.ceil(PATTERNS.length / PATTERNS_PER_DAY);
+const REMOVED_LEGACY_PATTERN_NUMS = [
+  5, 15, 23, 25, 29, 35, 39, 43, 45, 49, 53, 57, 59, 61, 63, 71,
+  91, 95, 99, 101, 103, 105, 111, 113, 119, 121, 123, 125, 129, 131, 133,
+  143, 145, 147, 149, 153, 163, 171, 175, 189, 191, 193, 195, 197, 223, 237,
+];
+
+function mapLegacyDayToCurated(day) {
+  const completed = Math.max(0, (day - 1) * PATTERNS_PER_DAY);
+  const retainedBefore = completed - REMOVED_LEGACY_PATTERN_NUMS.filter(num => num <= completed).length;
+  return Math.min(TOTAL_DAYS, Math.floor(retainedBefore / PATTERNS_PER_DAY) + 1);
+}
 
 /* ==================== 하루 커리큘럼 로직 (DOM 비의존, 테스트 가능) ==================== */
 
@@ -10,9 +21,9 @@ function dayPatterns(day) {
   return PATTERNS.slice(start, start + PATTERNS_PER_DAY);
 }
 
-/* 세션4는 전일 복습과 겹치지 않는 이전 패턴에서 날짜별로 고른다. */
+/* 전체 복습은 최근 복습과 겹치지 않는 이전 패턴에서 날짜별로 고른다. */
 function getReviewPicks(day, pool) {
-  const key = "reviewPicks_v4_" + day;
+  const key = "reviewPicks_v5_" + day;
   let cachedNums = null;
   try { cachedNums = JSON.parse(localStorage.getItem(key)); } catch {}
   if (Array.isArray(cachedNums)) {
@@ -20,9 +31,12 @@ function getReviewPicks(day, pool) {
     if (found.length === 2 && isPhrasalPattern(found[0]) !== isPhrasalPattern(found[1])) return found;
   }
   const yesterday = new Set(dayPatterns(day - 1).map(p => p.num));
+  const twoDaysAgo = new Set(day > 2 ? dayPatterns(day - 2).map(p => p.num) : []);
   const older = patterns => {
-    const eligible = patterns.filter(p => !yesterday.has(p.num));
-    return eligible.length ? eligible : patterns;
+    const eligible = patterns.filter(p => !yesterday.has(p.num) && !twoDaysAgo.has(p.num));
+    if (eligible.length) return eligible;
+    const beforeYesterday = patterns.filter(p => !yesterday.has(p.num));
+    return beforeYesterday.length ? beforeYesterday : patterns;
   };
   const phrasal = older(pool.filter(isPhrasalPattern));
   const regular = older(pool.filter(p => !isPhrasalPattern(p)));
@@ -63,12 +77,27 @@ function buildSessions(day) {
   if (day > 1) {
     const prev = dayPatterns(day - 1);
     sessions.push({ name: "세션3 어제 복습", tasks: oneExampleTasks(prev, 2, true, 1000) });
+    if (day > 2) {
+      const twoDaysAgo = dayPatterns(day - 2);
+      sessions.push({ name: "세션4 2일 전 복습", tasks: oneExampleTasks(twoDaysAgo, 2, true, 1000) });
+    }
     const pool = PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
     const picks = getReviewPicks(day, pool);
-    sessions.push({ name: "세션4 전체 복습", tasks: oneExampleTasks(picks, 2, true) });
+    sessions.push({ name: day > 2 ? "세션5 전체 복습" : "세션4 전체 복습", tasks: oneExampleTasks(picks, 2, true) });
   }
   sessions.push({ name: "마무리 일상 회화", tasks: [{ kind: "conversation", patterns: today }] });
   return sessions;
+}
+
+function migrateProgressForTwoDayReview(progress) {
+  if (!progress || progress.day < 3) return progress;
+  if (typeof progress.pos === "number") {
+    return progress.pos >= 10 ? { ...progress, pos: progress.pos + 2 } : progress;
+  }
+  if (typeof progress.session === "number" && progress.session >= 3) {
+    return { ...progress, session: progress.session + 1 };
+  }
+  return progress;
 }
 
 /* 오늘 할 일을 세션 이름표를 붙여 평평한 배열로 반환 */
