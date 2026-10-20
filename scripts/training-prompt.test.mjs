@@ -30,6 +30,18 @@ const fromJson = context.__parseTrainingPrompt(JSON.stringify(expected), true);
 assert.equal(fromJson.target_en, target, "JSON 안내문에서 목표 원문을 보존해야 합니다.");
 assert.equal(fromJson.target_ko, expected.target_ko, "JSON 안내문의 한국어 문장을 읽어야 합니다.");
 
+const withReason = { ...expected, reason_ko: "평소 습관을 말할 때 빈도를 함께 전하는 표현입니다." };
+assert.equal(
+  context.__parseTrainingPrompt(JSON.stringify(withReason), true, true, true).reason_ko,
+  withReason.reason_ko,
+  "세션1 안내문에는 답변 후 보여줄 짧은 설명이 있어야 합니다."
+);
+assert.equal(
+  context.__parseTrainingPrompt(JSON.stringify(expected), true, true, true),
+  null,
+  "세션1은 설명이 없는 이전 캐시를 사용하면 안 됩니다."
+);
+
 const fromText = context.__parseTrainingPrompt(
   `- 원문: ${target}\n- 상황: 일요일마다 장을 보는 평소 습관을 말하는 상황입니다.\n- 문장: 나는 보통 일요일에 장을 봐.\n- 핵심: 일요일 장보기 습관`,
   true
@@ -61,6 +73,7 @@ assert.match(app, /const TRAINING_REQUEST_TIMEOUT_MS = 30000/, "훈련 안내에
 assert.match(app, /const MAX_TRAINING_SITUATION_LENGTH = 28/, "상황 설명의 최대 길이가 필요합니다.");
 assert.match(app, /training_v10_short_t/, "기존의 긴 안내 캐시는 재사용하면 안 됩니다.");
 assert.match(app, /_nosituation/, "상황 없는 세션은 별도 캐시를 사용해야 합니다.");
+assert.match(app, /요청한 경우에만 reason_ko도 포함/, "세션1의 이유 필드를 시스템 안내가 허용해야 합니다.");
 assert.match(app, /responseJson: true/, "훈련 안내 요청은 JSON 응답을 요청해야 합니다.");
 assert.match(app, /function fetchWithTimeout\(url, options = \{\}, timeoutMs = LLM_REQUEST_TIMEOUT_MS\)/, "요청별 시간 제한을 전달할 수 있어야 합니다.");
 assert.match(app, /async function callClaude[\s\S]*?\}, options\.timeoutMs\);/, "Claude 훈련 안내에 별도 시간 제한을 적용해야 합니다.");

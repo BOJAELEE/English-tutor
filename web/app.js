@@ -473,7 +473,7 @@ async function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
 const SYSTEM_PROMPT =
   "당신은 한국인을 위한 영어회화 튜터입니다. 반드시 요청된 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.";
 const TRAINING_PROMPT_SYSTEM =
-  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 반드시 JSON 객체만 출력하세요. 필드는 target_en, situation, target_ko, core_meaning입니다. target_en에는 주어진 목표 영어 문장을 글자까지 똑같이 복사하고, 나머지 필드는 한국어로만 작성하세요. situation은 요청이 있을 때만 28자 이내의 짧은 한 문장으로 작성하세요.";
+  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 반드시 JSON 객체만 출력하세요. 기본 필드는 target_en, situation, target_ko, core_meaning이며, 요청한 경우에만 reason_ko도 포함하세요. target_en에는 주어진 목표 영어 문장을 글자까지 똑같이 복사하고, 나머지 필드는 한국어로만 작성하세요. situation은 요청이 있을 때만 28자 이내의 짧은 한 문장으로 작성하세요.";
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
@@ -745,38 +745,39 @@ function isConciseTrainingSituation(situation) {
   return text.length >= 6 && text.length <= MAX_TRAINING_SITUATION_LENGTH && !/[.!?。]/.test(text);
 }
 
-function isValidTrainingPrompt(val, showTarget, targetEn = "", showSituation = true) {
+function isValidTrainingPrompt(val, showTarget, targetEn = "", showSituation = true, withReason = false) {
   const text = val && [showSituation ? val.situation : "", val.target_ko, val.core_meaning].join(" ");
   const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
   return val && typeof val === "object" && (!showSituation || val.situation) && val.target_en &&
     val.core_meaning && (!showTarget || val.target_ko) && !/[A-Za-z]/.test(text) &&
     !generic.test(text) && (!showSituation || isConciseTrainingSituation(val.situation)) &&
-    (!targetEn || val.target_en === targetEn);
+    (!targetEn || val.target_en === targetEn) &&
+    (!withReason || (typeof val.reason_ko === "string" && val.reason_ko.trim()));
 }
 
-function parseTrainingPromptText(raw, showTarget, showSituation = true) {
-  const labels = { 원문: "target_en", 상황: "situation", 문장: "target_ko", 핵심: "core_meaning" };
+function parseTrainingPromptText(raw, showTarget, showSituation = true, withReason = false) {
+  const labels = { 원문: "target_en", 상황: "situation", 문장: "target_ko", 핵심: "core_meaning", 이유: "reason_ko" };
   const val = { situation: "", target_ko: "" };
   for (const line of String(raw).replace(/\*\*/g, "").split(/\r?\n/)) {
     const normalized = line.trim().replace(/^[-•]\s*/, "");
-    const match = normalized.match(/^(원문|상황|문장|핵심)\s*[:：]\s*(.+)$/);
+    const match = normalized.match(/^(원문|상황|문장|핵심|이유)\s*[:：]\s*(.+)$/);
     if (match) val[labels[match[1]]] = match[2].trim().replace(/^["“”]|["“”]$/g, "");
   }
-  return isValidTrainingPrompt(val, showTarget, "", showSituation) ? val : null;
+  return isValidTrainingPrompt(val, showTarget, "", showSituation, withReason) ? val : null;
 }
 
-function parseTrainingPrompt(raw, showTarget, showSituation = true) {
+function parseTrainingPrompt(raw, showTarget, showSituation = true, withReason = false) {
   try {
     const val = parseJson(raw);
-    if (isValidTrainingPrompt(val, showTarget, "", showSituation)) return val;
+    if (isValidTrainingPrompt(val, showTarget, "", showSituation, withReason)) return val;
   } catch {}
-  return parseTrainingPromptText(raw, showTarget, showSituation);
+  return parseTrainingPromptText(raw, showTarget, showSituation, withReason);
 }
 
-async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true) {
-  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + "_p" + p.num + "_e" + exIdx;
+async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, withReason = false) {
+  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + (withReason ? "_reason" : "") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
-  if (isValidTrainingPrompt(cached, showTarget, p.examples[exIdx], showSituation)) return cached;
+  if (isValidTrainingPrompt(cached, showTarget, p.examples[exIdx], showSituation, withReason)) return cached;
   const ex = p.examples[exIdx];
   const levelGuide = showTarget
     ? "target_ko에는 원문의 정확한 한국어 번역 한 문장, core_meaning에는 짧은 핵심 의미를 쓰세요."
@@ -784,18 +785,21 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true) {
   const situationGuide = showSituation
     ? `situation은 ${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 한 문장만 쓰세요. 목표 문장을 이해하는 데 필요한 배경 하나만 남기고, 대화 상대·추가 이유·장소·시간 같은 부연 설명은 넣지 마세요. 예: "기차가 연착돼 약속에 늦고 있어요."`
     : "situation은 빈 문자열로 두세요.";
+  const reasonGuide = withReason
+    ? "reason_ko에는 목표 영어 표현을 쓰는 이유(예: 공손함, 습관, 가능성, 시제)를 이 문장에 맞춰 한국어 한 문장(50자 이내)으로 구체적으로 설명하세요. '뜻을 전달합니다' 같은 일반론이나 학습자 답변의 정오 판정, 칭찬, 발음·인식 평가는 쓰지 마세요. 이 설명은 답변한 뒤에만 보여줍니다."
+    : "";
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const raw = await callLLM(
         `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-        `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. ${situationGuide} ${levelGuide}\n` +
-        `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"}`,
-        240,
+        `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. ${situationGuide} ${levelGuide} ${reasonGuide}\n` +
+        `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"${withReason ? ', "reason_ko":"이 표현을 쓰는 이유 한 문장"' : ""}}`,
+        withReason ? 300 : 240,
         TRAINING_PROMPT_SYSTEM,
         { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true }
       );
-      const val = parseTrainingPrompt(raw, showTarget, showSituation);
-      if (isValidTrainingPrompt(val, showTarget, ex, showSituation)) {
+      const val = parseTrainingPrompt(raw, showTarget, showSituation, withReason);
+      if (isValidTrainingPrompt(val, showTarget, ex, showSituation, withReason)) {
         LS.cacheSet(key, val);
         return val;
       }
@@ -1179,7 +1183,7 @@ async function runGuidedPatternTask(task) {
   const shadowPauseMs = task.shadowPauseMs || 0;
   ui.main("패턴 " + p.num);
   ui.sub("안내를 준비 중...");
-  const prompt = await step(() => getTrainingPrompt(p, exIdx, showTarget, showSituation));
+  const prompt = await step(() => getTrainingPrompt(p, exIdx, showTarget, showSituation, level === 1));
   const promptText = trainingPromptText(prompt, showTarget, showSituation);
   ui.trainingPrompt(prompt, showTarget, showSituation);
   ui.sub("");
@@ -1190,7 +1194,10 @@ async function runGuidedPatternTask(task) {
   if (state.skip || state.back) return;
 
   let feedbackKo, modelEn;
-  if (recognition === null) {
+  if (level === 1) {
+    feedbackKo = prompt.reason_ko;
+    modelEn = ex;
+  } else if (recognition === null) {
     feedbackKo = "최종 문장입니다.";
     modelEn = ex;
   } else {
