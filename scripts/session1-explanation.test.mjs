@@ -15,7 +15,7 @@ async function run(level, recognition = { text: "앞부분만 잘못 인식된 �
     situation: "친구에게 평소 습관을 설명해요.",
     target_ko: "나는 보통 일요일에 장을 봐.",
     core_meaning: "일요일 장보기 습관",
-    reason_ko: "평소 습관을 말할 때 빈도를 함께 전하는 표현입니다.",
+    reason_ko: "tend to는 반복되는 습관을 말할 때 씁니다.",
   };
   const context = vm.createContext({
     state: { skip: false, back: false, quit: false },
@@ -54,15 +54,15 @@ async function run(level, recognition = { text: "앞부분만 잘못 인식된 �
 
 const session1 = await run(1);
 assert.equal(session1.checked.length, 0, "세션1은 음성인식 원문을 채점하면 안 됩니다.");
-assert.ok(session1.displayed.some(text => text.includes("평소 습관을 말할 때")));
-assert.ok(session1.spoken.some(item => item.text.includes("평소 습관을 말할 때")));
+assert.ok(session1.displayed.some(text => text.includes("tend to는 반복되는 습관")));
+assert.ok(session1.spoken.some(item => item.text.includes("tend to는 반복되는 습관")));
 assert.ok(session1.displayed.every(text => !text.includes("앞부분만 잘못 인식된 내용")));
 assert.ok(session1.displayed.every(text => !text.includes("틀렸어요")));
 assert.ok(session1.displayed.some(text => text.includes("최종 문장:\nI tend to shop on Sundays.")));
 
 const unheard = await run(1, null);
 assert.equal(unheard.checked.length, 0, "음성인식 결과가 없어도 세션1은 채점하면 안 됩니다.");
-assert.ok(unheard.displayed.some(text => text.includes("평소 습관을 말할 때")));
+assert.ok(unheard.displayed.some(text => text.includes("tend to는 반복되는 습관")));
 
 const session2 = await run(2);
 assert.equal(session2.checked.length, 1, "다른 세션의 채점은 유지해야 합니다.");
