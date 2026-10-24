@@ -796,8 +796,9 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
       const raw = await callLLM(
         `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
         `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. ${situationGuide} ${levelGuide} ${reasonGuide}\n` +
-        `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}`,
-        withReason ? 300 : 240,
+        `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}` +
+        (attempt ? "\n이전 응답이 안내 형식에 맞지 않았습니다. 모든 필드를 채우고 목표 영어 문장을 원문 그대로 복사한 유효한 JSON 객체만 다시 출력하세요." : ""),
+        withReason ? 600 : 240,
         TRAINING_PROMPT_SYSTEM,
         { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true }
       );
@@ -1381,7 +1382,8 @@ async function runDay() {
         if (e && e.promptRetry) {
           ui.main("정확한 안내를 다시 준비하고 있어요.");
           ui.sub("같은 문제를 이어서 진행합니다.");
-          await speak("정확한 안내를 다시 준비하고 있어요.", "ko-KR");
+          try { await speak("정확한 안내를 다시 준비하고 있어요.", "ko-KR"); }
+          catch (speechError) { console.warn("재시도 안내 음성 실패:", speechError); }
           if (state.quit) throw { quit: true };
           if (!state.skip && !state.back) {
             previousTask = null;
@@ -1394,7 +1396,8 @@ async function runDay() {
           console.error(e);
           ui.main("이 문제를 다시 준비합니다.");
           ui.sub("");
-          await speak("이 문제를 다시 준비합니다.", "ko-KR");
+          try { await speak("이 문제를 다시 준비합니다.", "ko-KR"); }
+          catch (speechError) { console.warn("재시도 안내 음성 실패:", speechError); }
           if (state.quit) throw { quit: true };
           if (!state.skip && !state.back) {
             previousTask = null;

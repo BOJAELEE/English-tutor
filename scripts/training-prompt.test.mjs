@@ -89,13 +89,15 @@ const examples = [
   "Thanks for coming over on such short notice.",
 ];
 const requests = [];
+const tokenBudgets = [];
 const savedKeys = [];
 let exampleIndex = 0;
 const cache = { training_v10_short_t1_reason_p1_e0: { ...expected, target_en: examples[0], reason_ko: "기존의 모호한 설명" } };
 const promptContext = vm.createContext({
   LS: { cache, cacheSet: (key, value) => { savedKeys.push(key); cache[key] = value; } },
-  callLLM: async request => {
+  callLLM: async (request, maxTokens) => {
     requests.push(request);
+    tokenBudgets.push(maxTokens);
     return JSON.stringify({ ...expected, target_en: examples[exampleIndex], reason_ko: "come over는 상대방 집에 놀러 갈 때 씁니다." });
   },
   state: { skip: false, back: false, quit: false },
@@ -111,11 +113,33 @@ for (exampleIndex = 0; exampleIndex < examples.length; exampleIndex++) {
   await promptContext.__getTrainingPrompt({ num: 1, title: "Come over (놀러 오다).", examples }, exampleIndex, true, true, true);
 }
 assert.equal(requests.length, 3, "기존의 모호한 설명 캐시 대신 세 예문을 새로 준비해야 합니다.");
+assert.ok(tokenBudgets.every(count => count >= 600), "설명까지 포함한 안내문이 잘리지 않도록 응답 길이를 확보해야 합니다.");
 assert.match(requests[0], /패턴의 핵심 영어 단어/, "첫 예문은 패턴 핵심 단어의 선택 이유를 묻습니다.");
 for (const request of requests.slice(1)) {
   assert.match(request, /패턴 외의 핵심 영어 단어/, "나머지 두 예문은 문장을 구성하는 단어의 선택 이유를 묻습니다.");
 }
 assert.ok(savedKeys.every(key => key.includes("_reason_v2")), "새 설명은 이전 캐시와 구분해야 합니다.");
+
+const retryRequests = [];
+const retryContext = vm.createContext({
+  LS: { cache: {}, cacheSet: () => {} },
+  callLLM: async request => {
+    retryRequests.push(request);
+    if (retryRequests.length === 1) return "{}";
+    return JSON.stringify({ ...expected, target_en: examples[0], reason_ko: "come over는 상대방 집에 놀러 갈 때 씁니다." });
+  },
+  state: { skip: false, back: false, quit: false },
+  console,
+});
+vm.runInContext(
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
+    + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
+    + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
+  retryContext
+);
+await retryContext.__getTrainingPrompt({ num: 1, title: "Come over (놀러 오다).", examples }, 0, true, true, true);
+assert.equal(retryRequests.length, 2, "안내문 형식 오류에는 같은 예문을 한 번 더 요청해야 합니다.");
+assert.match(retryRequests[1], /이전 응답/, "재요청은 무엇을 고칠지 명시해야 합니다.");
 assert.match(app, /responseJson: true/, "훈련 안내 요청은 JSON 응답을 요청해야 합니다.");
 assert.match(app, /function fetchWithTimeout\(url, options = \{\}, timeoutMs = LLM_REQUEST_TIMEOUT_MS\)/, "요청별 시간 제한을 전달할 수 있어야 합니다.");
 assert.match(app, /async function callClaude[\s\S]*?\}, options\.timeoutMs\);/, "Claude 훈련 안내에 별도 시간 제한을 적용해야 합니다.");
