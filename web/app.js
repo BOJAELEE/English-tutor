@@ -775,7 +775,7 @@ function parseTrainingPrompt(raw, showTarget, showSituation = true, withReason =
 }
 
 async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, withReason = false) {
-  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + (withReason ? "_reason_v2" : "") + "_p" + p.num + "_e" + exIdx;
+  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + (withReason ? "_reason_v3" : "") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (isValidTrainingPrompt(cached, showTarget, p.examples[exIdx], showSituation, withReason)) return cached;
   const ex = p.examples[exIdx];
@@ -787,9 +787,9 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
     : "situation은 빈 문자열로 두세요.";
   const reasonGuide = withReason
     ? (exIdx === 0
-      ? "reason_ko에는 패턴의 핵심 영어 단어/표현을 그대로 인용하고, 그 단어의 구체적인 뜻이나 뉘앙스 때문에 이 상황에서 쓰는 이유를 70자 이내의 한국어 한 문장으로 설명하세요. 예: 'come over는 상대방 집에 놀러 갈 때 씁니다.'"
-      : "reason_ko에는 패턴 외의 핵심 영어 단어/구 1~2개를 그대로 인용하고, 한국어 목표 문장의 뜻을 나타내기 위해 그 단어들로 문장을 구성한 이유를 70자 이내의 한국어 한 문장으로 설명하세요. 패턴 자체의 설명은 반복하지 마세요.") +
-      " 일반론이나 학습자 답변의 정오 판정, 칭찬, 발음·인식 평가는 쓰지 마세요. 이 설명은 답변한 뒤에만 보여줍니다."
+      ? "reason_ko에는 패턴의 핵심 영어 단어/표현과 이 상황에서 쓰는 이유를 45자 이내의 한국어 한 문장으로 설명하세요. 예: 'come over는 상대방 집에 놀러 갈 때 씁니다.'"
+      : "reason_ko에는 패턴 외의 핵심 영어 단어/구 1개와 그 단어가 목표 문장에 필요한 이유를 45자 이내의 한국어 한 문장으로 설명하세요. 패턴 자체의 설명은 반복하지 마세요.") +
+      " 정답 문장 전체나 긴 절은 인용하지 마세요. 일반론이나 학습자 답변의 정오 판정, 칭찬, 발음·인식 평가는 쓰지 마세요. 이 설명은 답변한 뒤에만 보여줍니다."
     : "";
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -829,16 +829,14 @@ function sanitizeFeedback(feedback) {
   const cleaned = String(feedback || "")
     .replace(/(?:음성\s*인식|인식\s*결과|발음\s*인식|잘\s*안\s*들렸|잘\s*못\s*들었)[^.?!\n]*[.?!]?/gi, "")
     .trim();
-  const firstSentence = cleaned.split(/[.?!\n]/)[0].trim();
-  if (!firstSentence) return "최종 문장을 확인하세요.";
-  return firstSentence.length > 32 ? firstSentence.slice(0, 32).trim() + "…" : firstSentence;
+  return cleaned || "최종 문장을 확인하세요.";
 }
 
 async function checkPattern(p, targetEn, heard) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n목표 영어 문장: "${targetEn}"\n` +
     `음성인식 원문: "${heard}"\n` +
-    `판정 기준: 음성인식 원문은 단어 오인식·누락이 있을 수 있는 참고 자료입니다. 목표 문장과 단어가 다르다는 이유만으로 틀렸다고 판단하지 마세요. 목표 패턴(자연스러운 축약·시제 변화 포함)과 같은 핵심 뜻이 가능하면 correct는 true입니다. 원문에서 명확한 문법·패턴 오류가 확인될 때만 한 가지를 교정하세요. 인식이 짧거나 애매하면 correct는 true, feedback_ko는 "좋아요."로 하세요. 칭찬, 긴 설명, 음성 인식·발음·재시도 안내는 절대 쓰지 마세요.\n` +
+    `판정 기준: 음성인식 원문은 단어 오인식·누락이 있을 수 있는 참고 자료입니다. 목표 문장과 단어가 다르다는 이유만으로 틀렸다고 판단하지 마세요. 목표 패턴(자연스러운 축약·시제 변화 포함)과 같은 핵심 뜻이 가능하면 correct는 true입니다. 원문에서 명확한 문법·패턴 오류가 확인될 때만 한 가지를 교정하세요. 인식이 짧거나 애매하면 correct는 true, feedback_ko는 "좋아요."로 하세요. feedback_ko는 핵심만 한 문장으로 쓰고 정답 문장 전체를 반복하지 마세요. 칭찬, 긴 설명, 음성 인식·발음·재시도 안내는 절대 쓰지 마세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "핵심 오류 한 가지를 말하는 짧은 한국어 문장", "model_en": "가장 자연스러운 영어 문장"}`
   );
   return parseJson(raw);
@@ -848,7 +846,7 @@ async function checkAnswer(p, question, heard) {
   const raw = await callLLM(
     `학습 목표 패턴: "${p.title}"\n질문: "${question}"\n` +
     `음성인식 원문: "${heard}"\n` +
-    `판정 기준: 음성인식 원문은 단어 오인식·누락이 있을 수 있는 참고 자료입니다. 모범 답안과 단어가 다르다는 이유만으로 틀렸다고 판단하지 마세요. 이 패턴(자연스러운 축약·시제 변화 포함)과 질문에 맞는 뜻이 가능하면 correct는 true입니다. 원문에서 명확한 문법·패턴 오류가 확인될 때만 교정하세요. 인식이 짧거나 애매하면 correct는 true, feedback_ko는 "좋아요."로 하세요. feedback_ko에는 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
+    `판정 기준: 음성인식 원문은 단어 오인식·누락이 있을 수 있는 참고 자료입니다. 모범 답안과 단어가 다르다는 이유만으로 틀렸다고 판단하지 마세요. 이 패턴(자연스러운 축약·시제 변화 포함)과 질문에 맞는 뜻이 가능하면 correct는 true입니다. 원문에서 명확한 문법·패턴 오류가 확인될 때만 교정하세요. 인식이 짧거나 애매하면 correct는 true, feedback_ko는 "좋아요."로 하세요. feedback_ko는 핵심만 한 문장으로 쓰고 정답 문장 전체를 반복하지 마세요. 음성 인식, 잘 안 들림, 발음 확인, 다시 말해 달라는 내용을 절대 쓰지 말고 학습 표현만 안내하세요.\n` +
     `JSON: {"correct": true 또는 false, "feedback_ko": "짧은 한국어 피드백 한 문장", "model_en": "이 패턴을 사용한 자연스러운 모범 답변 한 문장"}`
   );
   return parseJson(raw);

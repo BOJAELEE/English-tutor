@@ -92,7 +92,7 @@ const requests = [];
 const tokenBudgets = [];
 const savedKeys = [];
 let exampleIndex = 0;
-const cache = { training_v10_short_t1_reason_p1_e0: { ...expected, target_en: examples[0], reason_ko: "기존의 모호한 설명" } };
+const cache = { training_v10_short_t1_reason_v2_p1_e0: { ...expected, target_en: examples[0], reason_ko: "기존의 긴 설명" } };
 const promptContext = vm.createContext({
   LS: { cache, cacheSet: (key, value) => { savedKeys.push(key); cache[key] = value; } },
   callLLM: async (request, maxTokens) => {
@@ -118,7 +118,9 @@ assert.match(requests[0], /패턴의 핵심 영어 단어/, "첫 예문은 패�
 for (const request of requests.slice(1)) {
   assert.match(request, /패턴 외의 핵심 영어 단어/, "나머지 두 예문은 문장을 구성하는 단어의 선택 이유를 묻습니다.");
 }
-assert.ok(savedKeys.every(key => key.includes("_reason_v2")), "새 설명은 이전 캐시와 구분해야 합니다.");
+assert.ok(requests.every(request => request.includes("45자 이내")), "세션1의 설명은 짧게 요청해야 합니다.");
+assert.ok(requests.every(request => request.includes("긴 절은 인용하지 마세요")), "설명이 정답 문장을 길게 반복하면 안 됩니다.");
+assert.ok(savedKeys.every(key => key.includes("_reason_v3")), "짧은 설명은 이전 캐시와 구분해야 합니다.");
 
 const retryRequests = [];
 const retryContext = vm.createContext({
