@@ -15,21 +15,27 @@ const context = vm.createContext({
 });
 
 vm.runInContext(`${patternsCode}\nglobalThis.__patterns = PATTERNS;`, context);
-vm.runInContext(`${taskCode}\nglobalThis.__tasks = { TOTAL_DAYS, dayPatterns, buildSessions, buildDayTasks, isPhrasalPattern, migrateProgressForTwoDayReview, REMOVED_LEGACY_PATTERN_NUMS, mapLegacyDayToCurated };`, context);
+vm.runInContext(`${taskCode}\nglobalThis.__tasks = { TOTAL_DAYS, dayPatterns, buildSessions, buildDayTasks, isPhrasalPattern, migrateProgressForTwoDayReview, REMOVED_LEGACY_PATTERN_NUMS, REMOVED_CURATED_PATTERN_NUMS, mapLegacyDayToCurated, mapCuratedDayToDeduped };`, context);
 
-const { TOTAL_DAYS, dayPatterns, buildSessions, buildDayTasks, isPhrasalPattern, migrateProgressForTwoDayReview, REMOVED_LEGACY_PATTERN_NUMS, mapLegacyDayToCurated } = context.__tasks;
+const { TOTAL_DAYS, dayPatterns, buildSessions, buildDayTasks, isPhrasalPattern, migrateProgressForTwoDayReview, REMOVED_LEGACY_PATTERN_NUMS, REMOVED_CURATED_PATTERN_NUMS, mapLegacyDayToCurated, mapCuratedDayToDeduped } = context.__tasks;
 const patterns = context.__patterns;
 const previousReviewNums = { phrasal: null, regular: null };
 
 assert.equal(editablePatternsCode.trim(), patternsCode.trim(), "편집용 TXT와 실제 앱 패턴이 달라서는 안 됩니다.");
-assert.equal(patterns.length, 204, "실용 패턴은 204개여야 합니다.");
-assert.equal(TOTAL_DAYS, 102, "모든 패턴을 하루 2개씩 102일에 배정해야 합니다.");
+assert.equal(patterns.length, 190, "중복을 정리한 실용 패턴은 190개여야 합니다.");
+assert.equal(TOTAL_DAYS, 95, "모든 패턴을 하루 2개씩 95일에 배정해야 합니다.");
 assert.equal(REMOVED_LEGACY_PATTERN_NUMS.length, 46, "중복·낮은 우선순위 패턴 46개만 제외해야 합니다.");
 assert.ok(REMOVED_LEGACY_PATTERN_NUMS.every(n => n % 2 === 1), "기존 둘째 패턴은 삭제하면 안 됩니다.");
 assert.equal(new Set(REMOVED_LEGACY_PATTERN_NUMS).size, 46, "제외 번호가 중복되면 안 됩니다.");
+assert.equal(JSON.stringify(REMOVED_CURATED_PATTERN_NUMS), JSON.stringify([43, 56, 58, 66, 100, 112, 117, 134, 163, 167, 172, 185, 191, 203]), "기능이 중복되는 14개만 추가로 제외해야 합니다.");
+assert.equal(mapCuratedDayToDeduped(27), 26, "학습 중인 패턴을 건너뛰지 않도록 이전 Day로 위치를 옮겨야 합니다.");
 assert.equal(mapLegacyDayToCurated(1), 1, "첫째 날은 그대로 시작해야 합니다.");
 assert.equal(mapLegacyDayToCurated(4), 3, "삭제된 패턴 이전의 학습 위치로 옮겨야 합니다.");
-assert.equal(mapLegacyDayToCurated(125), 102, "마지막 날은 새 마지막 날로 옮겨야 합니다.");
+assert.equal(mapLegacyDayToCurated(125), 95, "마지막 날은 새 마지막 날로 옮겨야 합니다.");
+const removedTitles = ["I'm wondering whether", "Do you mind if", "I wouldn't mind", "I don't feel like", "Are you free", "Can we move", "I can work with", "You're welcome to", "Is there a chance you could", "Would you consider", "I can't wait to", "I was hoping you could", "I wonder if", "I'd rather not"];
+removedTitles.forEach(title => assert.ok(!patterns.some(pattern => pattern.title.startsWith(title)), `${title}는 중복 학습하지 않아야 합니다.`));
+assert.ok(patterns.some(pattern => pattern.title.startsWith("Would it be okay if")), "사용자가 선호한 허락 요청 표현은 남겨야 합니다.");
+assert.ok(patterns.some(pattern => pattern.title.startsWith("Would you mind + -ing")), "상대에게 행동을 부탁하는 다른 용법은 남겨야 합니다.");
 patterns.forEach((pattern, index) => {
   assert.equal(pattern.num, index + 1, `패턴 번호 ${index + 1}이 연속되어야 합니다.`);
   assert.ok(pattern.title.trim(), `패턴 ${pattern.num}에 제목이 필요합니다.`);
@@ -126,9 +132,30 @@ const migrationContext = vm.createContext({
 vm.runInContext(patternsCode + taskCode + app.slice(0, app.indexOf("/* ==================== 음성: TTS")), migrationContext);
 assert.equal(JSON.parse(migrationStorage.get("progress")).day, 3, "기존 학습 위치를 새 Day로 옮겨야 합니다.");
 assert.equal(JSON.parse(migrationStorage.get("progress")).pos, 0, "재배열된 Day의 첫 문제부터 안전하게 시작해야 합니다.");
-assert.equal(migrationStorage.get("curriculumVersion"), "204-practical-patterns-v1", "새 패턴 버전이 저장되어야 합니다.");
+assert.equal(migrationStorage.get("curriculumVersion"), "190-practical-patterns-v2", "새 패턴 버전이 저장되어야 합니다.");
 assert.ok(!migrationStorage.has("promptCache"), "예전 패턴의 AI 안내 캐시는 재사용하면 안 됩니다.");
 assert.ok(!migrationStorage.has("reviewPicks_v4_4"), "예전 전체 복습 선택은 재사용하면 안 됩니다.");
+
+const curatedStorage = new Map([
+  ["curriculumVersion", "204-practical-patterns-v1"],
+  ["progress", JSON.stringify({ day: 27, pos: 4 })],
+  ["promptCache", JSON.stringify({ old: "stale" })],
+  ["reviewPicks_v5_27", "[53,54]"],
+]);
+const curatedContext = vm.createContext({
+  localStorage: {
+    getItem: key => curatedStorage.get(key) ?? null,
+    setItem: (key, value) => curatedStorage.set(key, String(value)),
+    removeItem: key => curatedStorage.delete(key),
+    key: index => [...curatedStorage.keys()][index] ?? null,
+    get length() { return curatedStorage.size; },
+  },
+});
+vm.runInContext(patternsCode + taskCode + app.slice(0, app.indexOf("/* ==================== 음성: TTS")), curatedContext);
+assert.equal(JSON.parse(curatedStorage.get("progress")).day, 26, "기존 Day 27 학습 위치를 새 패턴 순서에 맞춰 옮겨야 합니다.");
+assert.equal(JSON.parse(curatedStorage.get("progress")).pos, 0, "재배열된 Day의 첫 문제부터 다시 시작해야 합니다.");
+assert.ok(!curatedStorage.has("promptCache"), "재배열 전의 AI 안내 캐시는 지워야 합니다.");
+assert.ok(!curatedStorage.has("reviewPicks_v5_27"), "이전 번호로 저장된 복습 선택은 지워야 합니다.");
 assert.ok(!patterns.some(pattern => /^(?:Bump into|Catch up|Fall out with)/.test(pattern.title)), "낮은 우선순위 핵심 패턴은 다시 등장하면 안 됩니다.");
 
 assert.doesNotMatch(app, /연결이 지연되어 다음 문제로 넘어갑니다/, "연결 지연 때문에 문제를 자동으로 건너뛰면 안 됩니다.");

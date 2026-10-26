@@ -7,11 +7,18 @@ const REMOVED_LEGACY_PATTERN_NUMS = [
   91, 95, 99, 101, 103, 105, 111, 113, 119, 121, 123, 125, 129, 131, 133,
   143, 145, 147, 149, 153, 163, 171, 175, 189, 191, 193, 195, 197, 223, 237,
 ];
+const REMOVED_CURATED_PATTERN_NUMS = [43, 56, 58, 66, 100, 112, 117, 134, 163, 167, 172, 185, 191, 203];
+
+function mapCuratedDayToDeduped(day) {
+  const completed = Math.max(0, (day - 1) * PATTERNS_PER_DAY);
+  const retainedBefore = completed - REMOVED_CURATED_PATTERN_NUMS.filter(num => num <= completed).length;
+  return Math.min(TOTAL_DAYS, Math.floor(retainedBefore / PATTERNS_PER_DAY) + 1);
+}
 
 function mapLegacyDayToCurated(day) {
   const completed = Math.max(0, (day - 1) * PATTERNS_PER_DAY);
   const retainedBefore = completed - REMOVED_LEGACY_PATTERN_NUMS.filter(num => num <= completed).length;
-  return Math.min(TOTAL_DAYS, Math.floor(retainedBefore / PATTERNS_PER_DAY) + 1);
+  return mapCuratedDayToDeduped(Math.floor(retainedBefore / PATTERNS_PER_DAY) + 1);
 }
 
 /* ==================== 하루 커리큘럼 로직 (DOM 비의존, 테스트 가능) ==================== */

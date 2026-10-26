@@ -1,7 +1,7 @@
 "use strict";
 
 /* ==================== 저장소 ==================== */
-const CURRICULUM_VERSION = "204-practical-patterns-v1";
+const CURRICULUM_VERSION = "190-practical-patterns-v2";
 const LS = {
   get apiKey() { return localStorage.getItem("apiKey") || ""; },
   set apiKey(v) { localStorage.setItem("apiKey", v); },
@@ -47,14 +47,21 @@ const LS = {
 };
 
 function applyCurriculumVersion() {
-  if (localStorage.getItem("curriculumVersion") === CURRICULUM_VERSION) return;
+  const previousVersion = localStorage.getItem("curriculumVersion");
+  if (previousVersion === CURRICULUM_VERSION) return;
   let mappedProgress = null;
-  if (localStorage.getItem("curriculumVersion") === "250-master-patterns-v3") {
+  if (previousVersion === "250-master-patterns-v3" || previousVersion === "204-practical-patterns-v1") {
     let oldProgress;
     try { oldProgress = JSON.parse(localStorage.getItem("progress")); } catch { oldProgress = null; }
     if (oldProgress && Number.isInteger(oldProgress.day) && oldProgress.day >= 1) {
-      const finished = oldProgress.pos >= (oldProgress.day === 1 ? 9 : 13);
-      mappedProgress = { day: mapLegacyDayToCurated(oldProgress.day + (finished ? 1 : 0)), pos: 0 };
+      const oldTotal = previousVersion === "250-master-patterns-v3"
+        ? (oldProgress.day === 1 ? 9 : 13)
+        : (oldProgress.day === 1 ? 9 : oldProgress.day === 2 ? 13 : 15);
+      const finished = oldProgress.pos >= oldTotal;
+      const oldDay = oldProgress.day + (finished ? 1 : 0);
+      const mappedDay = previousVersion === "250-master-patterns-v3"
+        ? mapLegacyDayToCurated(oldDay) : mapCuratedDayToDeduped(oldDay);
+      mappedProgress = { day: mappedDay, pos: 0 };
     }
   }
   localStorage.removeItem("progress");
@@ -473,13 +480,14 @@ async function listen(lang, timeoutMs, keepListeningOnNoSpeech = false) {
 const SYSTEM_PROMPT =
   "당신은 한국인을 위한 영어회화 튜터입니다. 반드시 요청된 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.";
 const TRAINING_PROMPT_SYSTEM =
-  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 반드시 JSON 객체만 출력하세요. 기본 필드는 target_en, situation, target_ko, core_meaning이며, 요청한 경우에만 reason_ko도 포함하세요. target_en에는 주어진 목표 영어 문장을 글자까지 똑같이 복사하세요. situation, target_ko, core_meaning은 한국어로 작성하고, reason_ko는 한국어 설명 속에 근거가 되는 영어 단어를 그대로 인용하세요. situation은 요청이 있을 때만 28자 이내의 짧은 한 문장으로 작성하세요.";
+  "당신은 한국인을 위한 영어회화 훈련 안내 작성자입니다. 반드시 JSON 객체만 출력하세요. 기본 필드는 target_en, situation, target_ko, core_meaning이며, 요청한 경우에만 reason_ko도 포함하세요. target_en에는 주어진 목표 영어 문장을 글자까지 똑같이 복사하세요. situation, target_ko, core_meaning은 한국어로 작성하고, reason_ko는 35자 이내의 한국어 설명 속에 근거가 되는 짧은 영어 표현을 인용하세요. situation은 요청이 있을 때만 28자 이내의 짧은 한 문장으로 작성하세요.";
 
 function currentKey() { return LS.engine === "gemini" ? LS.geminiKey : LS.apiKey; }
 
 const LLM_REQUEST_TIMEOUT_MS = 15000;
 const TRAINING_REQUEST_TIMEOUT_MS = 30000;
 const MAX_TRAINING_SITUATION_LENGTH = 28;
+const MAX_TRAINING_REASON_LENGTH = 35;
 const activeRequestControllers = new Set();
 const activeRetryWaiters = new Set();
 
@@ -745,6 +753,13 @@ function isConciseTrainingSituation(situation) {
   return text.length >= 6 && text.length <= MAX_TRAINING_SITUATION_LENGTH && !/[.!?。]/.test(text);
 }
 
+function isConciseTrainingReason(reason) {
+  if (typeof reason !== "string") return false;
+  const text = reason.trim();
+  return text.length <= MAX_TRAINING_REASON_LENGTH && /[A-Za-z]/.test(text) &&
+    /[.!?。]$/.test(text) && !text.includes("…");
+}
+
 function isValidTrainingPrompt(val, showTarget, targetEn = "", showSituation = true, withReason = false) {
   const text = val && [showSituation ? val.situation : "", val.target_ko, val.core_meaning].join(" ");
   const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
@@ -752,7 +767,7 @@ function isValidTrainingPrompt(val, showTarget, targetEn = "", showSituation = t
     val.core_meaning && (!showTarget || val.target_ko) && !/[A-Za-z]/.test(text) &&
     !generic.test(text) && (!showSituation || isConciseTrainingSituation(val.situation)) &&
     (!targetEn || val.target_en === targetEn) &&
-    (!withReason || (typeof val.reason_ko === "string" && /[A-Za-z]/.test(val.reason_ko)));
+    (!withReason || isConciseTrainingReason(val.reason_ko));
 }
 
 function parseTrainingPromptText(raw, showTarget, showSituation = true, withReason = false) {
@@ -775,7 +790,7 @@ function parseTrainingPrompt(raw, showTarget, showSituation = true, withReason =
 }
 
 async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, withReason = false) {
-  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + (withReason ? "_reason_v3" : "") + "_p" + p.num + "_e" + exIdx;
+  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + (withReason ? "_reason_v5" : "") + "_p" + p.num + "_e" + exIdx;
   const cached = LS.cache[key];
   if (isValidTrainingPrompt(cached, showTarget, p.examples[exIdx], showSituation, withReason)) return cached;
   const ex = p.examples[exIdx];
@@ -787,9 +802,9 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
     : "situation은 빈 문자열로 두세요.";
   const reasonGuide = withReason
     ? (exIdx === 0
-      ? "reason_ko에는 패턴의 핵심 영어 단어/표현과 이 상황에서 쓰는 이유를 45자 이내의 한국어 한 문장으로 설명하세요. 예: 'come over는 상대방 집에 놀러 갈 때 씁니다.'"
-      : "reason_ko에는 패턴 외의 핵심 영어 단어/구 1개와 그 단어가 목표 문장에 필요한 이유를 45자 이내의 한국어 한 문장으로 설명하세요. 패턴 자체의 설명은 반복하지 마세요.") +
-      " 정답 문장 전체나 긴 절은 인용하지 마세요. 일반론이나 학습자 답변의 정오 판정, 칭찬, 발음·인식 평가는 쓰지 마세요. 이 설명은 답변한 뒤에만 보여줍니다."
+      ? "reason_ko에는 패턴의 핵심 영어 단어/표현(최대 3단어)과 이 상황에서 쓰는 이유를 35자 이내의 한국어 한 문장으로 설명하세요. 예: 'come over는 집에 놀러 갈 때 씁니다.'"
+      : "reason_ko에는 패턴 외의 핵심 영어 단어/구 1개와 그 단어가 필요한 이유를 35자 이내의 한국어 한 문장으로 설명하세요. 패턴 자체의 설명은 반복하지 마세요.") +
+      " 정답 문장 전체나 긴 절은 인용하지 마세요. 문장을 자르거나 말줄임표를 쓰지 마세요. 짧지만 뜻이 완결된 새 문장을 쓰고 마침표로 끝내세요. 일반론이나 학습자 답변의 정오 판정, 칭찬, 발음·인식 평가는 쓰지 마세요. 이 설명은 답변한 뒤에만 보여줍니다."
     : "";
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -797,7 +812,8 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
         `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
         `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. ${situationGuide} ${levelGuide} ${reasonGuide}\n` +
         `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}` +
-        (attempt ? "\n이전 응답이 안내 형식에 맞지 않았습니다. 모든 필드를 채우고 목표 영어 문장을 원문 그대로 복사한 유효한 JSON 객체만 다시 출력하세요." : ""),
+        (attempt ? "\n이전 응답이 안내 형식에 맞지 않았습니다. 모든 필드를 채우고 목표 영어 문장을 원문 그대로 복사한 유효한 JSON 객체만 다시 출력하세요." +
+          (withReason ? " reason_ko는 길면 잘라내지 말고 35자 이내의 새로운 완전한 문장으로 다시 쓰세요." : "") : ""),
         withReason ? 600 : 240,
         TRAINING_PROMPT_SYSTEM,
         { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true }

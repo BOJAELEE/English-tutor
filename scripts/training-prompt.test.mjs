@@ -15,7 +15,7 @@ assert.ok(trainingTextStart > trainingEnd, "훈련 안내 생성 구간을 찾�
 
 const context = vm.createContext({});
 vm.runInContext(
-  "const MAX_TRAINING_SITUATION_LENGTH = 28;" + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingEnd)
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35;" + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingEnd)
     + "globalThis.__parseTrainingPrompt = parseTrainingPrompt;",
   context
 );
@@ -47,6 +47,16 @@ assert.equal(
   context.__parseTrainingPrompt(JSON.stringify({ ...expected, reason_ko: "이 표현이 뜻을 전달합니다." }), true, true, true),
   null,
   "세션1의 설명은 실제 영어 단어를 짚어야 합니다."
+);
+assert.equal(
+  context.__parseTrainingPrompt(JSON.stringify({ ...expected, reason_ko: "come over는 누군가가 다른 사람의 집을 방문하는 상황을 매우 구체적으로 설명할 때 사용하는 표현입니다." }), true, true, true),
+  null,
+  "긴 설명은 문장 중간을 자르지 말고 새로 생성해야 합니다."
+);
+assert.equal(
+  context.__parseTrainingPrompt(JSON.stringify({ ...expected, reason_ko: "come over는 집에 놀러 갈 때 씁니다…" }), true, true, true),
+  null,
+  "말줄임표로 끝난 설명은 완전한 문장이 아닙니다."
 );
 
 const fromText = context.__parseTrainingPrompt(
@@ -81,7 +91,7 @@ assert.match(app, /const MAX_TRAINING_SITUATION_LENGTH = 28/, "상황 설명의 
 assert.match(app, /training_v10_short_t/, "기존의 긴 안내 캐시는 재사용하면 안 됩니다.");
 assert.match(app, /_nosituation/, "상황 없는 세션은 별도 캐시를 사용해야 합니다.");
 assert.match(app, /요청한 경우에만 reason_ko도 포함/, "세션1의 이유 필드를 시스템 안내가 허용해야 합니다.");
-assert.match(app, /reason_ko는 한국어 설명 속에 근거가 되는 영어 단어/, "단어별 설명에는 실제 영어 단어 인용이 필요합니다.");
+assert.match(app, /reason_ko는 35자 이내의 한국어 설명 속에 근거가 되는 짧은 영어 표현/, "단어별 설명은 짧은 영어 표현을 인용해야 합니다.");
 
 const examples = [
   "Do you want to come over for dinner?",
@@ -92,7 +102,7 @@ const requests = [];
 const tokenBudgets = [];
 const savedKeys = [];
 let exampleIndex = 0;
-const cache = { training_v10_short_t1_reason_v2_p1_e0: { ...expected, target_en: examples[0], reason_ko: "기존의 긴 설명" } };
+const cache = { training_v10_short_t1_reason_v3_p1_e0: { ...expected, target_en: examples[0], reason_ko: "기존의 긴 설명" } };
 const promptContext = vm.createContext({
   LS: { cache, cacheSet: (key, value) => { savedKeys.push(key); cache[key] = value; } },
   callLLM: async (request, maxTokens) => {
@@ -104,7 +114,7 @@ const promptContext = vm.createContext({
   console,
 });
 vm.runInContext(
-  "const MAX_TRAINING_SITUATION_LENGTH = 28; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
     + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
     + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
   promptContext
@@ -118,9 +128,10 @@ assert.match(requests[0], /패턴의 핵심 영어 단어/, "첫 예문은 패�
 for (const request of requests.slice(1)) {
   assert.match(request, /패턴 외의 핵심 영어 단어/, "나머지 두 예문은 문장을 구성하는 단어의 선택 이유를 묻습니다.");
 }
-assert.ok(requests.every(request => request.includes("45자 이내")), "세션1의 설명은 짧게 요청해야 합니다.");
+assert.ok(requests.every(request => request.includes("35자 이내")), "세션1의 설명은 짧게 요청해야 합니다.");
 assert.ok(requests.every(request => request.includes("긴 절은 인용하지 마세요")), "설명이 정답 문장을 길게 반복하면 안 됩니다.");
-assert.ok(savedKeys.every(key => key.includes("_reason_v3")), "짧은 설명은 이전 캐시와 구분해야 합니다.");
+assert.ok(requests.every(request => request.includes("문장을 자르거나 말줄임표를 쓰지 마세요")), "짧은 설명을 새 문장으로 작성해야 합니다.");
+assert.ok(savedKeys.every(key => key.includes("_reason_v5")), "완전한 짧은 설명은 이전 캐시와 구분해야 합니다.");
 
 const retryRequests = [];
 const retryContext = vm.createContext({
@@ -134,7 +145,7 @@ const retryContext = vm.createContext({
   console,
 });
 vm.runInContext(
-  "const MAX_TRAINING_SITUATION_LENGTH = 28; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
     + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
     + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
   retryContext
@@ -142,6 +153,30 @@ vm.runInContext(
 await retryContext.__getTrainingPrompt({ num: 1, title: "Come over (놀러 오다).", examples }, 0, true, true, true);
 assert.equal(retryRequests.length, 2, "안내문 형식 오류에는 같은 예문을 한 번 더 요청해야 합니다.");
 assert.match(retryRequests[1], /이전 응답/, "재요청은 무엇을 고칠지 명시해야 합니다.");
+
+const lengthRetryRequests = [];
+const lengthRetryContext = vm.createContext({
+  LS: { cache: {}, cacheSet: () => {} },
+  callLLM: async request => {
+    lengthRetryRequests.push(request);
+    const reason_ko = lengthRetryRequests.length === 1
+      ? "come over는 누군가가 다른 사람의 집을 방문하는 상황을 매우 구체적으로 설명할 때 사용하는 표현입니다."
+      : "come over는 집에 놀러 갈 때 씁니다.";
+    return JSON.stringify({ ...expected, target_en: examples[0], reason_ko });
+  },
+  state: { skip: false, back: false, quit: false },
+  console,
+});
+vm.runInContext(
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
+    + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
+    + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
+  lengthRetryContext
+);
+const rewritten = await lengthRetryContext.__getTrainingPrompt({ num: 1, title: "Come over (놀러 오다).", examples }, 0, true, true, true);
+assert.equal(lengthRetryRequests.length, 2, "35자 초과 설명은 같은 문제에서 짧은 새 문장으로 다시 작성해야 합니다.");
+assert.equal(rewritten.reason_ko, "come over는 집에 놀러 갈 때 씁니다.", "완성된 새 문장을 사용해야 합니다.");
+assert.match(lengthRetryRequests[1], /잘라내지 말고/, "재요청도 문장 중간을 자르지 않도록 안내해야 합니다.");
 assert.match(app, /responseJson: true/, "훈련 안내 요청은 JSON 응답을 요청해야 합니다.");
 assert.match(app, /function fetchWithTimeout\(url, options = \{\}, timeoutMs = LLM_REQUEST_TIMEOUT_MS\)/, "요청별 시간 제한을 전달할 수 있어야 합니다.");
 assert.match(app, /async function callClaude[\s\S]*?\}, options\.timeoutMs\);/, "Claude 훈련 안내에 별도 시간 제한을 적용해야 합니다.");
