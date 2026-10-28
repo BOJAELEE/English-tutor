@@ -7,7 +7,7 @@ const start = app.indexOf("async function runGuidedPatternTask");
 const end = app.indexOf("async function runPatternTask", start);
 assert.ok(start >= 0 && end > start, "공통 훈련 흐름을 찾을 수 있어야 합니다.");
 
-async function run(level, recognition = { text: "앞부분만 잘못 인식된 내용" }) {
+async function run(level, recognition = { text: "앞부분만 잘못 인식된 내용" }, reason = "tend to는 반복되는 습관을 말할 때 씁니다.") {
   const spoken = [];
   const displayed = [];
   const checked = [];
@@ -15,7 +15,7 @@ async function run(level, recognition = { text: "앞부분만 잘못 인식된 �
     situation: "친구에게 평소 습관을 설명해요.",
     target_ko: "나는 보통 일요일에 장을 봐.",
     core_meaning: "일요일 장보기 습관",
-    reason_ko: "tend to는 반복되는 습관을 말할 때 씁니다.",
+    reason_ko: reason,
   };
   const context = vm.createContext({
     state: { skip: false, back: false, quit: false },
@@ -67,4 +67,8 @@ assert.ok(unheard.displayed.some(text => text.includes("tend to는 반복되는 
 const session2 = await run(2);
 assert.equal(session2.checked.length, 1, "다른 세션의 채점은 유지해야 합니다.");
 assert.ok(session2.displayed.some(text => text.includes("틀렸어요")));
+const noReason = await run(1, { text: "test" }, "");
+assert.ok(noReason.displayed.includes("최종 문장:\nI tend to shop on Sundays."), "설명이 없어도 최종 문장을 표시하고 진행해야 합니다.");
+assert.ok(noReason.spoken.every(item => item.text), "빈 설명을 음성 합성에 전달하면 안 됩니다.");
+assert.ok(noReason.spoken.some(item => item.lang === "en-US"), "설명 실패와 관계없이 목표 영어 문장은 한 번 재생해야 합니다.");
 console.log("Session 1 explanation tests passed");

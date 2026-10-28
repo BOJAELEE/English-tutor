@@ -161,7 +161,7 @@ assert.ok(!patterns.some(pattern => /^(?:Bump into|Catch up|Fall out with)/.test
 assert.doesNotMatch(app, /연결이 지연되어 다음 문제로 넘어갑니다/, "연결 지연 때문에 문제를 자동으로 건너뛰면 안 됩니다.");
 assert.doesNotMatch(app, /koreanPatternMeaning|basicTrainingPrompt|prompt\.isFallback/, "문법 표기를 임시 안내문으로 쓰면 안 됩니다.");
 assert.match(app, /error\.promptRetry = true/, "정확한 훈련 안내를 받지 못하면 같은 문제를 재시도해야 합니다.");
-assert.match(app, /정확한 안내를 다시 준비하고 있어요/, "재시도 상태를 사용자에게 보여줘야 합니다.");
+assert.match(app, /다시 시도를 누르면 같은 문제를 이어갑니다/, "자동 재시도를 반복하지 말고 같은 문제의 수동 재시도를 안내해야 합니다.");
 assert.match(app, /일상 회화 요청 실패 - 기본 질문으로 진행/, "일상 회화도 요청 실패 시 계속 진행해야 합니다.");
 assert.match(app, /waitCancellable\(shadowPauseMs\)/, "세션별 쉐도잉 대기는 취소 가능해야 합니다.");
 console.log("Curriculum and connection fallback tests passed");

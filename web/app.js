@@ -560,7 +560,7 @@ async function callLLM(user, maxTokens, systemPrompt = SYSTEM_PROMPT, options = 
     } catch (e) {
       lastErr = e;
       if (e && e.cancelled) throw e;
-      if (i === 0 && (e.timedOut || e.status === 429 || e.status >= 500)) {
+      if (options.retryTransient !== false && i === 0 && (e.timedOut || e.status === 429 || e.status >= 500)) {
         await waitBeforeLlmRetry(2000);
         continue;
       }
@@ -790,10 +790,11 @@ function parseTrainingPrompt(raw, showTarget, showSituation = true, withReason =
 }
 
 async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, withReason = false) {
-  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + (withReason ? "_reason_v5" : "") + "_p" + p.num + "_e" + exIdx;
-  const cached = LS.cache[key];
-  if (isValidTrainingPrompt(cached, showTarget, p.examples[exIdx], showSituation, withReason)) return cached;
+  const key = "training_v10_short_t" + (showTarget ? "1" : "0") + (showSituation ? "" : "_nosituation") + (withReason ? "_reason_v6" : "") + "_p" + p.num + "_e" + exIdx;
   const ex = p.examples[exIdx];
+  const cached = LS.cache[key];
+  let val = isValidTrainingPrompt(cached, showTarget, ex, showSituation) ? { ...cached } : null;
+  if (val && (!withReason || isConciseTrainingReason(val.reason_ko))) return val;
   const levelGuide = showTarget
     ? "target_ko에는 원문의 정확한 한국어 번역 한 문장, core_meaning에는 짧은 핵심 의미를 쓰세요."
     : "target_ko는 빈 문자열로 두고, core_meaning에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
@@ -806,31 +807,53 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
       : "reason_ko에는 패턴 외의 핵심 영어 단어/구 1개와 그 단어가 필요한 이유를 35자 이내의 한국어 한 문장으로 설명하세요. 패턴 자체의 설명은 반복하지 마세요.") +
       " 정답 문장 전체나 긴 절은 인용하지 마세요. 문장을 자르거나 말줄임표를 쓰지 마세요. 짧지만 뜻이 완결된 새 문장을 쓰고 마침표로 끝내세요. 일반론이나 학습자 답변의 정오 판정, 칭찬, 발음·인식 평가는 쓰지 마세요. 이 설명은 답변한 뒤에만 보여줍니다."
     : "";
-  try {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const raw = await callLLM(
-        `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
-        `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. ${situationGuide} ${levelGuide} ${reasonGuide}\n` +
-        `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}` +
-        (attempt ? "\n이전 응답이 안내 형식에 맞지 않았습니다. 모든 필드를 채우고 목표 영어 문장을 원문 그대로 복사한 유효한 JSON 객체만 다시 출력하세요." +
-          (withReason ? " reason_ko는 길면 잘라내지 말고 35자 이내의 새로운 완전한 문장으로 다시 쓰세요." : "") : ""),
-        withReason ? 600 : 240,
-        TRAINING_PROMPT_SYSTEM,
-        { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true }
-      );
-      const val = parseTrainingPrompt(raw, showTarget, showSituation, withReason);
-      if (isValidTrainingPrompt(val, showTarget, ex, showSituation, withReason)) {
-        LS.cacheSet(key, val);
-        return val;
+  if (!val) {
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const raw = await callLLM(
+          `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
+          `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. ${situationGuide} ${levelGuide} ${reasonGuide}\n` +
+          `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}` +
+          (attempt ? "\n이전 응답이 안내 형식에 맞지 않았습니다. 모든 필드를 채우고 목표 영어 문장을 원문 그대로 복사한 유효한 JSON 객체만 다시 출력하세요." : ""),
+          withReason ? 600 : 240,
+          TRAINING_PROMPT_SYSTEM,
+          { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true }
+        );
+        const candidate = parseTrainingPrompt(raw, showTarget, showSituation);
+        if (isValidTrainingPrompt(candidate, showTarget, ex, showSituation)) {
+          val = candidate;
+          break;
+        }
       }
+    } catch (e) {
+      if ((e && e.cancelled) || state.skip || state.back || state.quit) throw e;
+      console.warn("훈련 안내 요청 실패:", e);
     }
-  } catch (e) {
-    if ((e && e.cancelled) || state.skip || state.back || state.quit) throw e;
-    console.warn("훈련 안내 요청 실패 - 같은 문제를 다시 준비:", e);
   }
-  const error = new Error("정확한 훈련 안내문을 받지 못했습니다.");
-  error.promptRetry = true;
-  throw error;
+  if (!val) {
+    const error = new Error("정확한 훈련 안내문을 받지 못했습니다.");
+    error.promptRetry = true;
+    throw error;
+  }
+  if (withReason && !isConciseTrainingReason(val.reason_ko)) {
+    const previousReason = typeof val.reason_ko === "string" ? val.reason_ko : "";
+    val.reason_ko = "";
+    try {
+      const raw = await callLLM(
+        `목표 영어 문장: "${ex}" (패턴: ${p.title})\n기존 설명: ${previousReason}\n` +
+        `${reasonGuide} 길면 잘라내지 말고 35자 이내의 새로운 완전한 문장으로 다시 쓰세요. 질문은 다시 만들지 말고 설명만 출력하세요.\nJSON: {"reason_ko":"짧은 완성 문장"}`,
+        160, SYSTEM_PROMPT,
+        { timeoutMs: 10000, responseJson: true, retryTransient: false }
+      );
+      const reason = parseJson(raw).reason_ko;
+      if (isConciseTrainingReason(reason)) val.reason_ko = reason.trim();
+    } catch (e) {
+      if ((e && e.cancelled) || state.skip || state.back || state.quit) throw e;
+      console.warn("짧은 설명 재작성 실패 - 정상 질문으로 진행:", e);
+    }
+  }
+  LS.cacheSet(key, val);
+  return val;
 }
 
 function trainingPromptText(prompt, showTarget, showSituation = true) {
@@ -1067,6 +1090,22 @@ function waitWhilePaused() {
   return new Promise(resolve => pauseWaiters.add(resolve));
 }
 
+function waitForPromptRetry() {
+  const button = $("btn-retry");
+  button.classList.remove("hidden");
+  return new Promise((resolve, reject) => {
+    const finish = error => {
+      button.classList.add("hidden");
+      button.onclick = null;
+      activeRetryWaiters.delete(cancel);
+      if (error) reject(error); else resolve();
+    };
+    const cancel = () => finish(cancelledRequestError());
+    button.onclick = () => finish();
+    activeRetryWaiters.add(cancel);
+  });
+}
+
 async function step(fn) {
   if (state.quit) throw { quit: true };
   await waitWhilePaused();
@@ -1213,7 +1252,7 @@ async function runGuidedPatternTask(task) {
 
   let feedbackKo, modelEn;
   if (level === 1) {
-    feedbackKo = prompt.reason_ko;
+    feedbackKo = prompt.reason_ko || "";
     modelEn = ex;
   } else if (recognition === null) {
     feedbackKo = "최종 문장입니다.";
@@ -1235,9 +1274,9 @@ async function runGuidedPatternTask(task) {
     }
   }
 
-  ui.main(feedbackKo + "\n\n최종 문장:\n" + modelEn);
+  ui.main((feedbackKo ? feedbackKo + "\n\n" : "") + "최종 문장:\n" + modelEn);
   ui.sub("");
-  await step(() => speak(feedbackKo, "ko-KR"));
+  if (feedbackKo) await step(() => speak(feedbackKo, "ko-KR"));
   await step(() => speak(modelEn, "en-US"));
   if (shadowPauseMs) {
     ui.sub("따라 말해보세요");
@@ -1393,31 +1432,18 @@ async function runDay() {
     } catch (e) {
       if ((e && e.quit) || state.quit) throw { quit: true };
       if (!((e && e.cancelled) || state.skip || state.back)) {
-        if (e && e.promptRetry) {
-          ui.main("정확한 안내를 다시 준비하고 있어요.");
-          ui.sub("같은 문제를 이어서 진행합니다.");
-          try { await speak("정확한 안내를 다시 준비하고 있어요.", "ko-KR"); }
-          catch (speechError) { console.warn("재시도 안내 음성 실패:", speechError); }
-          if (state.quit) throw { quit: true };
-          if (!state.skip && !state.back) {
-            previousTask = null;
-            arrivedByBack = false;
-            continue;
-          }
+        console.error(e);
+        ui.main(e && e.promptRetry ? "안내를 불러오지 못했어요." : "진행 중 오류가 발생했어요.");
+        ui.sub("다시 시도를 누르면 같은 문제를 이어갑니다.");
+        try { await waitForPromptRetry(); }
+        catch (retryError) {
+          if (!(retryError && retryError.cancelled)) throw retryError;
         }
+        if (state.quit) throw { quit: true };
         if (!state.skip && !state.back) {
-          // 안내문은 같은 문제에서 재시도하고, 남은 예외도 자동으로 건너뛰지 않는다.
-          console.error(e);
-          ui.main("이 문제를 다시 준비합니다.");
-          ui.sub("");
-          try { await speak("이 문제를 다시 준비합니다.", "ko-KR"); }
-          catch (speechError) { console.warn("재시도 안내 음성 실패:", speechError); }
-          if (state.quit) throw { quit: true };
-          if (!state.skip && !state.back) {
-            previousTask = null;
-            arrivedByBack = false;
-            continue;
-          }
+          previousTask = null;
+          arrivedByBack = false;
+          continue;
         }
       }
     }

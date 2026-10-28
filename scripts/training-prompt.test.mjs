@@ -114,7 +114,7 @@ const promptContext = vm.createContext({
   console,
 });
 vm.runInContext(
-  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = ''; const SYSTEM_PROMPT = '';"
     + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
     + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
   promptContext
@@ -131,7 +131,7 @@ for (const request of requests.slice(1)) {
 assert.ok(requests.every(request => request.includes("35자 이내")), "세션1의 설명은 짧게 요청해야 합니다.");
 assert.ok(requests.every(request => request.includes("긴 절은 인용하지 마세요")), "설명이 정답 문장을 길게 반복하면 안 됩니다.");
 assert.ok(requests.every(request => request.includes("문장을 자르거나 말줄임표를 쓰지 마세요")), "짧은 설명을 새 문장으로 작성해야 합니다.");
-assert.ok(savedKeys.every(key => key.includes("_reason_v5")), "완전한 짧은 설명은 이전 캐시와 구분해야 합니다.");
+assert.ok(savedKeys.every(key => key.includes("_reason_v6")), "설명 실패를 분리한 안내는 이전 캐시와 구분해야 합니다.");
 
 const retryRequests = [];
 const retryContext = vm.createContext({
@@ -145,7 +145,7 @@ const retryContext = vm.createContext({
   console,
 });
 vm.runInContext(
-  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = ''; const SYSTEM_PROMPT = '';"
     + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
     + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
   retryContext
@@ -168,7 +168,7 @@ const lengthRetryContext = vm.createContext({
   console,
 });
 vm.runInContext(
-  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = '';"
+  "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = ''; const SYSTEM_PROMPT = '';"
     + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
     + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
   lengthRetryContext
@@ -177,6 +177,76 @@ const rewritten = await lengthRetryContext.__getTrainingPrompt({ num: 1, title: 
 assert.equal(lengthRetryRequests.length, 2, "35자 초과 설명은 같은 문제에서 짧은 새 문장으로 다시 작성해야 합니다.");
 assert.equal(rewritten.reason_ko, "come over는 집에 놀러 갈 때 씁니다.", "완성된 새 문장을 사용해야 합니다.");
 assert.match(lengthRetryRequests[1], /잘라내지 말고/, "재요청도 문장 중간을 자르지 않도록 안내해야 합니다.");
+assert.doesNotMatch(lengthRetryRequests[1], /"target_en"/, "설명 재작성 때문에 정상 질문 전체를 다시 생성하면 안 됩니다.");
+
+async function requestWithResponses(responses, cache = {}, state = {}, pattern = { num: 1, title: "Come over (놀러 오다).", examples }, exIdx = 0) {
+  const requests = [];
+  const options = [];
+  const saved = [];
+  const testContext = vm.createContext({
+    LS: { cache, cacheSet: (key, value) => saved.push({ key, value }) },
+    callLLM: async (request, _tokens, _system, requestOptions) => {
+      requests.push(request);
+      options.push(requestOptions);
+      assert.ok(requests.length <= responses.length, "정해진 요청 수를 초과하면 안 됩니다.");
+      const response = responses[requests.length - 1];
+      if (response instanceof Error) throw response;
+      return JSON.stringify(response);
+    },
+    state,
+    console: { warn: () => {} },
+  });
+  vm.runInContext(
+    "const MAX_TRAINING_SITUATION_LENGTH = 28; const MAX_TRAINING_REASON_LENGTH = 35; const TRAINING_REQUEST_TIMEOUT_MS = 30000; const TRAINING_PROMPT_SYSTEM = ''; const SYSTEM_PROMPT = '';"
+      + app.slice(jsonStart, jsonEnd) + app.slice(trainingStart, trainingTextStart)
+      + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
+    testContext
+  );
+  const result = await testContext.__getTrainingPrompt(pattern, exIdx, true, true, true);
+  return { result, requests, saved, options };
+}
+const longReason = { ...expected, target_en: examples[0], reason_ko: "come over는 누군가가 다른 사람의 집을 방문하는 상황을 매우 구체적으로 설명할 때 사용하는 표현입니다." };
+for (const failedRewrite of [{ reason_ko: longReason.reason_ko }, {}, new Error("API 시간 초과")]) {
+  const failed = await requestWithResponses([longReason, failedRewrite]);
+  assert.equal(failed.requests.length, 2, "설명은 한 번만 다시 작성해야 합니다.");
+  assert.equal(failed.result.target_en, examples[0], "정상 질문을 유지해야 합니다.");
+  assert.equal(failed.result.target_ko, expected.target_ko);
+  assert.equal(failed.result.reason_ko, "", "재작성 실패 시 긴 설명을 자르거나 재생하지 말고 생략해야 합니다.");
+  assert.equal(failed.saved.length, 1, "정상 질문은 설명 실패 뒤에도 저장해야 합니다.");
+  assert.equal(failed.options[1].retryTransient, false, "설명 재작성 요청은 통신 실패에도 반복하지 않아야 합니다.");
+  assert.equal(failed.options[1].timeoutMs, 10000, "선택적인 설명 때문에 오래 기다리면 안 됩니다.");
+}
+const patternContext = vm.createContext({});
+vm.runInContext(fs.readFileSync(new URL("../web/patterns.js", import.meta.url), "utf8") + ";globalThis.__patterns=PATTERNS;", patternContext);
+const day28Pattern = patternContext.__patterns[54];
+assert.equal(day28Pattern.title, "Hang up (전화를 끊다).");
+const day28 = await requestWithResponses([
+  { ...expected, target_en: day28Pattern.examples[1], reason_ko: "before I could explain은 설명할 기회도 없었다는 뜻을 나타내므로 씁니다." },
+  { reason_ko: "before I could explain은 설명할 기회도 없었다는 뜻을 나타내므로 씁니다." },
+], {}, {}, day28Pattern, 1);
+assert.equal(day28.requests.length, 2, "Day 28 두 번째 문제의 설명 실패가 무한 반복되면 안 됩니다.");
+assert.equal(day28.result.target_en, "She hung up before I could explain.");
+assert.equal(day28.result.reason_ko, "");
+const cachedBase = { training_v10_short_t1_reason_v6_p1_e0: { ...longReason, reason_ko: "" } };
+const restored = await requestWithResponses([{ reason_ko: "come over는 집에 놀러 갈 때 씁니다." }], cachedBase);
+assert.equal(restored.requests.length, 1, "캐시된 정상 질문은 유지하고 빠진 설명만 다시 준비해야 합니다.");
+assert.doesNotMatch(restored.requests[0], /"target_en"/);
+await assert.rejects(requestWithResponses([{}, {}]), error => error.promptRetry === true, "질문 자체가 잘못된 경우에만 수동 재시도를 요청해야 합니다.");
+await assert.rejects(requestWithResponses([longReason, Object.assign(new Error("취소"), { cancelled: true })]), error => error.cancelled === true, "제어 버튼 취소를 설명 생략으로 숨기면 안 됩니다.");
+const llmStart = app.indexOf("async function callLLM(");
+const llmEnd = app.indexOf("/* 키에서", llmStart);
+let transportAttempts = 0;
+const llmContext = vm.createContext({
+  SYSTEM_PROMPT: "", LS: { engine: "claude" },
+  callClaude: async () => { transportAttempts++; throw Object.assign(new Error("일시 오류"), { status: 429 }); },
+  waitBeforeLlmRetry: async () => {},
+});
+vm.runInContext(app.slice(llmStart, llmEnd) + ";globalThis.__call=callLLM;", llmContext);
+await assert.rejects(llmContext.__call("설명", 160, "", { retryTransient: false }));
+assert.equal(transportAttempts, 1, "설명 재작성의 재시도 금지 옵션을 실제 통신 경로도 지켜야 합니다.");
+transportAttempts = 0;
+await assert.rejects(llmContext.__call("질문", 600));
+assert.equal(transportAttempts, 2, "기존 질문 통신의 일시 오류 재시도는 유지해야 합니다.");
 assert.match(app, /responseJson: true/, "훈련 안내 요청은 JSON 응답을 요청해야 합니다.");
 assert.match(app, /function fetchWithTimeout\(url, options = \{\}, timeoutMs = LLM_REQUEST_TIMEOUT_MS\)/, "요청별 시간 제한을 전달할 수 있어야 합니다.");
 assert.match(app, /async function callClaude[\s\S]*?\}, options\.timeoutMs\);/, "Claude 훈련 안내에 별도 시간 제한을 적용해야 합니다.");
