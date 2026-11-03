@@ -761,11 +761,15 @@ function isConciseTrainingReason(reason) {
 }
 
 function isValidTrainingPrompt(val, showTarget, targetEn = "", showSituation = true, withReason = false) {
-  const text = val && [showSituation ? val.situation : "", val.target_ko, val.core_meaning].join(" ");
+  if (!val || typeof val !== "object") return false;
+  const target = showTarget ? val.target_ko : val.core_meaning;
+  const text = [showSituation ? val.situation : "", target].join(" ");
+  const englishAnswer = String(val.target_en || "").trim().replace(/[.!?]+$/, "").toLowerCase();
   const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
-  return val && typeof val === "object" && (!showSituation || val.situation) && val.target_en &&
-    val.core_meaning && (!showTarget || val.target_ko) && !/[A-Za-z]/.test(text) &&
-    !generic.test(text) && (!showSituation || isConciseTrainingSituation(val.situation)) &&
+  return typeof val.target_en === "string" && englishAnswer &&
+    typeof target === "string" && /[가-힣]/.test(target) &&
+    !generic.test(text) && !text.toLowerCase().includes(englishAnswer) &&
+    (!showSituation || (typeof val.situation === "string" && /[가-힣]/.test(val.situation) && isConciseTrainingSituation(val.situation))) &&
     (!targetEn || val.target_en === targetEn) &&
     (!withReason || isConciseTrainingReason(val.reason_ko));
 }
@@ -796,7 +800,7 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
   let val = isValidTrainingPrompt(cached, showTarget, ex, showSituation) ? { ...cached } : null;
   if (val && (!withReason || isConciseTrainingReason(val.reason_ko))) return val;
   const levelGuide = showTarget
-    ? "target_ko에는 원문의 정확한 한국어 번역 한 문장, core_meaning에는 짧은 핵심 의미를 쓰세요."
+    ? "target_ko에는 원문의 정확한 한국어 번역 한 문장을 쓰고, core_meaning은 빈 문자열로 두세요. L 사이즈 같은 치수나 고유명사는 한국어 문장 안에 포함해도 됩니다. 영어 정답 문장 전체를 노출하지 마세요."
     : "target_ko는 빈 문자열로 두고, core_meaning에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
   const situationGuide = showSituation
     ? `situation은 ${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 한 문장만 쓰세요. 목표 문장을 이해하는 데 필요한 배경 하나만 남기고, 대화 상대·추가 이유·장소·시간 같은 부연 설명은 넣지 마세요. 예: "기차가 연착돼 약속에 늦고 있어요."`
@@ -807,17 +811,18 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
       : "reason_ko에는 패턴 외의 핵심 영어 단어/구 1개와 그 단어가 필요한 이유를 35자 이내의 한국어 한 문장으로 설명하세요. 패턴 자체의 설명은 반복하지 마세요.") +
       " 정답 문장 전체나 긴 절은 인용하지 마세요. 문장을 자르거나 말줄임표를 쓰지 마세요. 짧지만 뜻이 완결된 새 문장을 쓰고 마침표로 끝내세요. 일반론이나 학습자 답변의 정오 판정, 칭찬, 발음·인식 평가는 쓰지 마세요. 이 설명은 답변한 뒤에만 보여줍니다."
     : "";
+  let failureReason = "안내 응답의 형식이 맞지 않아요.";
   if (!val) {
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         const raw = await callLLM(
           `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n` +
           `이 목표 문장에만 맞는 구체적인 훈련 안내를 만드세요. target_en에는 목표 영어 문장을 글자까지 똑같이 복사하세요. ${situationGuide} ${levelGuide} ${reasonGuide}\n` +
-          `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"짧은 한국어 핵심 의미"${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}` +
+          `JSON: {"target_en":"목표 영어 문장 원문", "situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}", "target_ko":"${showTarget ? "정확한 한국어 번역" : ""}", "core_meaning":"${showTarget ? "" : "짧은 한국어 핵심 의미"}"${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}` +
           (attempt ? "\n이전 응답이 안내 형식에 맞지 않았습니다. 모든 필드를 채우고 목표 영어 문장을 원문 그대로 복사한 유효한 JSON 객체만 다시 출력하세요." : ""),
-          withReason ? 600 : 240,
+          600,
           TRAINING_PROMPT_SYSTEM,
-          { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true }
+          { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true, retryTransient: false }
         );
         const candidate = parseTrainingPrompt(raw, showTarget, showSituation);
         if (isValidTrainingPrompt(candidate, showTarget, ex, showSituation)) {
@@ -827,12 +832,16 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
       }
     } catch (e) {
       if ((e && e.cancelled) || state.skip || state.back || state.quit) throw e;
+      failureReason = e && e.timedOut ? "AI 응답 시간이 초과됐어요."
+        : e && Number.isInteger(e.status) ? `AI 요청 오류 (HTTP ${e.status})`
+        : "AI 서버에 연결하지 못했어요.";
       console.warn("훈련 안내 요청 실패:", e);
     }
   }
   if (!val) {
     const error = new Error("정확한 훈련 안내문을 받지 못했습니다.");
     error.promptRetry = true;
+    error.promptFailure = failureReason;
     throw error;
   }
   if (withReason && !isConciseTrainingReason(val.reason_ko)) {
@@ -1090,22 +1099,6 @@ function waitWhilePaused() {
   return new Promise(resolve => pauseWaiters.add(resolve));
 }
 
-function waitForPromptRetry() {
-  const button = $("btn-retry");
-  button.classList.remove("hidden");
-  return new Promise((resolve, reject) => {
-    const finish = error => {
-      button.classList.add("hidden");
-      button.onclick = null;
-      activeRetryWaiters.delete(cancel);
-      if (error) reject(error); else resolve();
-    };
-    const cancel = () => finish(cancelledRequestError());
-    button.onclick = () => finish();
-    activeRetryWaiters.add(cancel);
-  });
-}
-
 async function step(fn) {
   if (state.quit) throw { quit: true };
   await waitWhilePaused();
@@ -1238,9 +1231,10 @@ async function runGuidedPatternTask(task) {
   const showTarget = task.showTarget !== false;
   const showSituation = task.showSituation !== false;
   const shadowPauseMs = task.shadowPauseMs || 0;
+  const firstUsage = level === 1 && exIdx === 0 ? p.usage_ko || "" : "";
   ui.main("패턴 " + p.num);
   ui.sub("안내를 준비 중...");
-  const prompt = await step(() => getTrainingPrompt(p, exIdx, showTarget, showSituation, level === 1));
+  const prompt = await step(() => getTrainingPrompt(p, exIdx, showTarget, showSituation, level === 1 && !firstUsage));
   const promptText = trainingPromptText(prompt, showTarget, showSituation);
   ui.trainingPrompt(prompt, showTarget, showSituation);
   ui.sub("");
@@ -1252,7 +1246,10 @@ async function runGuidedPatternTask(task) {
 
   let feedbackKo, modelEn;
   if (level === 1) {
-    feedbackKo = prompt.reason_ko || "";
+    feedbackKo = firstUsage || prompt.reason_ko || "";
+    modelEn = ex;
+  } else if (task.answerOnly) {
+    feedbackKo = "";
     modelEn = ex;
   } else if (recognition === null) {
     feedbackKo = "최종 문장입니다.";
@@ -1396,6 +1393,7 @@ async function runDay() {
   let pos = prog.pos;
   let previousTask = null;
   let arrivedByBack = false;
+  let retryCount = 0;
 
   while (true) {
     const tasks = buildDayTasks(day);
@@ -1419,11 +1417,13 @@ async function runDay() {
     $("btn-back").disabled = (day === 1 && pos === 0);
 
     try {
-      if (!previousTask || previousTask.sessionName !== task.sessionName) {
-        await step(() => speak(sessionIntro(task.sessionName), "ko-KR"));
-      } else if (!arrivedByBack && previousTask.sessionName === task.sessionName
-        && previousTask.p.num !== task.p.num) {
-        await step(() => speak("다음 패턴이에요.", "ko-KR"));
+      if (retryCount === 0) {
+        if (!previousTask || previousTask.sessionName !== task.sessionName) {
+          await step(() => speak(sessionIntro(task.sessionName), "ko-KR"));
+        } else if (!arrivedByBack && previousTask.sessionName === task.sessionName
+          && previousTask.p.num !== task.p.num) {
+          await step(() => speak("다음 패턴이에요.", "ko-KR"));
+        }
       }
 
       if (task.kind === "pattern") await runPatternTask(task);
@@ -1433,9 +1433,11 @@ async function runDay() {
       if ((e && e.quit) || state.quit) throw { quit: true };
       if (!((e && e.cancelled) || state.skip || state.back)) {
         console.error(e);
-        ui.main(e && e.promptRetry ? "안내를 불러오지 못했어요." : "진행 중 오류가 발생했어요.");
-        ui.sub("다시 시도를 누르면 같은 문제를 이어갑니다.");
-        try { await waitForPromptRetry(); }
+        retryCount++;
+        const retryDelay = Math.min(30000, 2000 * 2 ** Math.min(retryCount - 1, 4));
+        ui.main("같은 문제를 자동으로 다시 준비합니다.");
+        ui.sub(`${e && e.promptFailure || "일시적인 오류가 발생했어요."} ${retryDelay / 1000}초 후 자동 재시도합니다. (${retryCount}회)`);
+        try { await waitCancellable(retryDelay); }
         catch (retryError) {
           if (!(retryError && retryError.cancelled)) throw retryError;
         }
@@ -1448,6 +1450,7 @@ async function runDay() {
       }
     }
 
+    retryCount = 0;
     const prevDay = day, prevPos = pos;
     const next = advancePos(day, pos, state.back ? "back" : "forward");
     day = next.day; pos = next.pos;

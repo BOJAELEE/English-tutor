@@ -72,25 +72,25 @@ function buildSessions(day) {
   const patternTasks = (patterns, trainingLevel, showTarget) => patterns.flatMap(p =>
     p.examples.map((ex, exIdx) => ({ kind: "pattern", p, ex, exIdx, trainingLevel, showTarget }))
   );
-  const oneExampleTasks = (patterns, trainingLevel, showTarget, shadowPauseMs = 0) => patterns.map(p =>
-    ({ kind: "pattern", p, ex: p.examples[0], exIdx: 0, trainingLevel, showTarget, shadowPauseMs })
+  const oneExampleTasks = (patterns, trainingLevel, showTarget, shadowPauseMs = 0, answerOnly = false) => patterns.map(p =>
+    ({ kind: "pattern", p, ex: p.examples[0], exIdx: 0, trainingLevel, showTarget, shadowPauseMs, answerOnly })
   );
   const s1 = patternTasks(today, 1, true);
-  const s2 = today.map(p => ({ kind: "situation", p, trainingLevel: 2, showTarget: true, showSituation: false, shadowPauseMs: 1000 }));
+  const s2 = today.map(p => ({ kind: "situation", p, trainingLevel: 2, showTarget: true, showSituation: false, shadowPauseMs: 1000, answerOnly: true }));
   const sessions = [
     { name: "세션1 패턴 연습", tasks: s1 },
     { name: "세션2 상황 연습", tasks: s2 },
   ];
   if (day > 1) {
     const prev = dayPatterns(day - 1);
-    sessions.push({ name: "세션3 어제 복습", tasks: oneExampleTasks(prev, 2, true, 1000) });
+    sessions.push({ name: "세션3 어제 복습", tasks: oneExampleTasks(prev, 2, true, 1000, true) });
     if (day > 2) {
       const twoDaysAgo = dayPatterns(day - 2);
-      sessions.push({ name: "세션4 2일 전 복습", tasks: oneExampleTasks(twoDaysAgo, 2, true, 1000) });
+      sessions.push({ name: "세션4 2일 전 복습", tasks: oneExampleTasks(twoDaysAgo, 2, true, 1000, true) });
     }
     const pool = PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
     const picks = getReviewPicks(day, pool);
-    sessions.push({ name: day > 2 ? "세션5 전체 복습" : "세션4 전체 복습", tasks: oneExampleTasks(picks, 2, true) });
+    sessions.push({ name: day > 2 ? "세션5 전체 복습" : "세션4 전체 복습", tasks: oneExampleTasks(picks, 2, true, 0, day === 2) });
   }
   sessions.push({ name: "마무리 일상 회화", tasks: [{ kind: "conversation", patterns: today }] });
   return sessions;

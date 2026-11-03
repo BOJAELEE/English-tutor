@@ -31,6 +31,16 @@ const expected = {
 const fromJson = context.__parseTrainingPrompt(JSON.stringify(expected), true);
 assert.equal(fromJson.target_en, target, "JSON 안내문에서 목표 원문을 보존해야 합니다.");
 assert.equal(fromJson.target_ko, expected.target_ko, "JSON 안내문의 한국어 문장을 읽어야 합니다.");
+const sizePrompt = {
+  target_en: "Do you have this wool jacket in size large?",
+  situation: "옷 가게에서 원하는 치수를 물어요.",
+  target_ko: "이 울 재킷 L 사이즈 있나요?",
+  core_meaning: "L 사이즈 재고 확인",
+};
+assert.equal(context.__parseTrainingPrompt(JSON.stringify(sizePrompt), true)?.target_ko, sizePrompt.target_ko, "Day 31의 L 사이즈 같은 정상 표기를 영어 정답으로 오해하면 안 됩니다.");
+assert.ok(context.__parseTrainingPrompt(JSON.stringify({ ...sizePrompt, core_meaning: "" }), true), "화면에 쓰지 않는 핵심 의미 필드가 비어도 정상 번역은 유지해야 합니다.");
+assert.equal(context.__parseTrainingPrompt(JSON.stringify({ ...sizePrompt, target_ko: sizePrompt.target_en }), true), null, "영어 정답 자체를 한국어 질문으로 표시하면 안 됩니다.");
+assert.equal(context.__parseTrainingPrompt(JSON.stringify({ ...sizePrompt, target_ko: `다음 문장을 말하세요: ${sizePrompt.target_en}` }), true), null, "한국어 안내에 영어 정답 전체를 섞어도 차단해야 합니다.");
 
 const withReason = { ...expected, reason_ko: "tend to는 반복되는 습관을 말할 때 씁니다." };
 assert.equal(
@@ -179,15 +189,16 @@ assert.equal(rewritten.reason_ko, "come over는 집에 놀러 갈 때 씁니다.
 assert.match(lengthRetryRequests[1], /잘라내지 말고/, "재요청도 문장 중간을 자르지 않도록 안내해야 합니다.");
 assert.doesNotMatch(lengthRetryRequests[1], /"target_en"/, "설명 재작성 때문에 정상 질문 전체를 다시 생성하면 안 됩니다.");
 
-async function requestWithResponses(responses, cache = {}, state = {}, pattern = { num: 1, title: "Come over (놀러 오다).", examples }, exIdx = 0) {
+async function requestWithResponses(responses, cache = {}, state = {}, pattern = { num: 1, title: "Come over (놀러 오다).", examples }, exIdx = 0, withReason = true) {
   const requests = [];
   const options = [];
   const saved = [];
   const testContext = vm.createContext({
     LS: { cache, cacheSet: (key, value) => saved.push({ key, value }) },
-    callLLM: async (request, _tokens, _system, requestOptions) => {
+    callLLM: async (request, tokens, _system, requestOptions) => {
       requests.push(request);
       options.push(requestOptions);
+      if (request.includes('"target_en"')) assert.ok(tokens >= 600, "이유 설명이 없는 안내도 출력 길이가 충분해야 합니다.");
       assert.ok(requests.length <= responses.length, "정해진 요청 수를 초과하면 안 됩니다.");
       const response = responses[requests.length - 1];
       if (response instanceof Error) throw response;
@@ -202,7 +213,7 @@ async function requestWithResponses(responses, cache = {}, state = {}, pattern =
       + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
     testContext
   );
-  const result = await testContext.__getTrainingPrompt(pattern, exIdx, true, true, true);
+  const result = await testContext.__getTrainingPrompt(pattern, exIdx, true, true, withReason);
   return { result, requests, saved, options };
 }
 const longReason = { ...expected, target_en: examples[0], reason_ko: "come over는 누군가가 다른 사람의 집을 방문하는 상황을 매우 구체적으로 설명할 때 사용하는 표현입니다." };
@@ -227,11 +238,17 @@ const day28 = await requestWithResponses([
 assert.equal(day28.requests.length, 2, "Day 28 두 번째 문제의 설명 실패가 무한 반복되면 안 됩니다.");
 assert.equal(day28.result.target_en, "She hung up before I could explain.");
 assert.equal(day28.result.reason_ko, "");
+const day31Pattern = patternContext.__patterns[60];
+const day31 = await requestWithResponses([sizePrompt], {}, {}, day31Pattern, 0, false);
+assert.equal(day31.requests.length, 1, "정상 L 사이즈 안내는 재요청 없이 출제되어야 합니다.");
+assert.equal(day31.result.target_ko, sizePrompt.target_ko);
+assert.equal(day31.options[0].retryTransient, false, "질문 통신 실패는 자동 대기 흐름에서 처리하고 내부 중복 재시도는 하지 않아야 합니다.");
 const cachedBase = { training_v10_short_t1_reason_v6_p1_e0: { ...longReason, reason_ko: "" } };
 const restored = await requestWithResponses([{ reason_ko: "come over는 집에 놀러 갈 때 씁니다." }], cachedBase);
 assert.equal(restored.requests.length, 1, "캐시된 정상 질문은 유지하고 빠진 설명만 다시 준비해야 합니다.");
 assert.doesNotMatch(restored.requests[0], /"target_en"/);
-await assert.rejects(requestWithResponses([{}, {}]), error => error.promptRetry === true, "질문 자체가 잘못된 경우에만 수동 재시도를 요청해야 합니다.");
+await assert.rejects(requestWithResponses([{}, {}]), error => error.promptRetry === true, "질문 자체가 잘못된 경우에만 같은 문제의 자동 재시도를 요청해야 합니다.");
+await assert.rejects(requestWithResponses([Object.assign(new Error("인증 실패"), { status: 401 })]), error => error.promptFailure.includes("401"), "실제 실패 이유를 안전한 상태 정보로 전달해야 합니다.");
 await assert.rejects(requestWithResponses([longReason, Object.assign(new Error("취소"), { cancelled: true })]), error => error.cancelled === true, "제어 버튼 취소를 설명 생략으로 숨기면 안 됩니다.");
 const llmStart = app.indexOf("async function callLLM(");
 const llmEnd = app.indexOf("/* 키에서", llmStart);

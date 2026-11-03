@@ -39,6 +39,9 @@ assert.ok(patterns.some(pattern => pattern.title.startsWith("Would you mind + -i
 patterns.forEach((pattern, index) => {
   assert.equal(pattern.num, index + 1, `패턴 번호 ${index + 1}이 연속되어야 합니다.`);
   assert.ok(pattern.title.trim(), `패턴 ${pattern.num}에 제목이 필요합니다.`);
+  assert.equal(typeof pattern.usage_ko, "string", `패턴 ${pattern.num}에 첫 예문용 사용 이유가 필요합니다.`);
+  assert.ok(pattern.usage_ko.length <= 35 && /[A-Za-z]/.test(pattern.usage_ko) && /\.$/.test(pattern.usage_ko), `패턴 ${pattern.num}의 사용 이유는 영어 표현을 짚는 짧은 완성 문장이어야 합니다.`);
+  assert.ok(!pattern.usage_ko.includes("…"), `패턴 ${pattern.num}의 사용 이유가 중간에 잘리면 안 됩니다.`);
   assert.equal(pattern.examples.length, 3, `패턴 ${pattern.num}에는 예문 3개가 필요합니다.`);
   pattern.examples.forEach((example, exampleIndex) => {
     assert.ok(example.trim(), `패턴 ${pattern.num} 예문 ${exampleIndex + 1}이 비어 있으면 안 됩니다.`);
@@ -59,6 +62,10 @@ for (let day = 1; day <= TOTAL_DAYS; day++) {
     "마무리 일상 회화",
   ]), `Day ${day} 세션 순서가 올바르지 않습니다.`);
   assert.equal(sessions.at(-1).name, "마무리 일상 회화", `Day ${day}에 마무리 회화가 필요합니다.`);
+  sessions.filter(session => session.name.startsWith("세션")).forEach(session => {
+    const answerOnly = /^세션[234] /.test(session.name);
+    session.tasks.forEach(task => assert.equal(Boolean(task.answerOnly), answerOnly, `Day ${day} ${session.name}의 채점 생략 정책이 맞아야 합니다.`));
+  });
   const situationTasks = sessions.find(session => session.name === "세션2 상황 연습").tasks;
   situationTasks.forEach(task => {
     assert.equal(task.showSituation, false, `Day ${day} 세션2는 상황 설명을 표시하면 안 됩니다.`);
@@ -161,7 +168,7 @@ assert.ok(!patterns.some(pattern => /^(?:Bump into|Catch up|Fall out with)/.test
 assert.doesNotMatch(app, /연결이 지연되어 다음 문제로 넘어갑니다/, "연결 지연 때문에 문제를 자동으로 건너뛰면 안 됩니다.");
 assert.doesNotMatch(app, /koreanPatternMeaning|basicTrainingPrompt|prompt\.isFallback/, "문법 표기를 임시 안내문으로 쓰면 안 됩니다.");
 assert.match(app, /error\.promptRetry = true/, "정확한 훈련 안내를 받지 못하면 같은 문제를 재시도해야 합니다.");
-assert.match(app, /다시 시도를 누르면 같은 문제를 이어갑니다/, "자동 재시도를 반복하지 말고 같은 문제의 수동 재시도를 안내해야 합니다.");
+assert.match(app, /초 후 자동 재시도/, "실패 시 같은 문제를 자동 재시도한다고 안내해야 합니다.");
 assert.match(app, /일상 회화 요청 실패 - 기본 질문으로 진행/, "일상 회화도 요청 실패 시 계속 진행해야 합니다.");
 assert.match(app, /waitCancellable\(shadowPauseMs\)/, "세션별 쉐도잉 대기는 취소 가능해야 합니다.");
 console.log("Curriculum and connection fallback tests passed");

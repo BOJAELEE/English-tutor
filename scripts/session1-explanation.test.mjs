@@ -7,7 +7,7 @@ const start = app.indexOf("async function runGuidedPatternTask");
 const end = app.indexOf("async function runPatternTask", start);
 assert.ok(start >= 0 && end > start, "공통 훈련 흐름을 찾을 수 있어야 합니다.");
 
-async function run(level, recognition = { text: "앞부분만 잘못 인식된 내용" }, reason = "tend to는 반복되는 습관을 말할 때 씁니다.") {
+async function run(level, recognition = { text: "앞부분만 잘못 인식된 내용" }, reason = "tend to는 반복되는 습관을 말할 때 씁니다.", options = {}) {
   const spoken = [];
   const displayed = [];
   const checked = [];
@@ -26,7 +26,7 @@ async function run(level, recognition = { text: "앞부분만 잘못 인식된 �
     },
     step: fn => fn(),
     getTrainingPrompt: async (...args) => {
-      assert.equal(args[4], level === 1, "세션1만 설명을 준비해야 합니다.");
+      assert.equal(args[4], level === 1 && !(options.p?.usage_ko && (options.exIdx || 0) === 0), "첫 예문의 고정 설명은 AI에 다시 요청하면 안 됩니다.");
       return prompt;
     },
     trainingPromptText: () => "말할 문장: 나는 보통 일요일에 장을 봐.",
@@ -48,6 +48,7 @@ async function run(level, recognition = { text: "앞부분만 잘못 인식된 �
     exIdx: 0,
     trainingLevel: level,
     showTarget: true,
+    ...options,
   });
   return { spoken, displayed, checked };
 }
@@ -71,4 +72,23 @@ const noReason = await run(1, { text: "test" }, "");
 assert.ok(noReason.displayed.includes("최종 문장:\nI tend to shop on Sundays."), "설명이 없어도 최종 문장을 표시하고 진행해야 합니다.");
 assert.ok(noReason.spoken.every(item => item.text), "빈 설명을 음성 합성에 전달하면 안 됩니다.");
 assert.ok(noReason.spoken.some(item => item.lang === "en-US"), "설명 실패와 관계없이 목표 영어 문장은 한 번 재생해야 합니다.");
+const patternsContext = vm.createContext({});
+vm.runInContext(fs.readFileSync(new URL("../web/patterns.js", import.meta.url), "utf8") + ";globalThis.__patterns=PATTERNS;", patternsContext);
+for (const p of patternsContext.__patterns) {
+  const first = await run(1, { text: "test" }, "", { p, ex: p.examples[0] });
+  assert.ok(first.spoken.some(item => item.text === p.usage_ko), `패턴 ${p.num}의 첫 예문에는 AI 설명이 실패해도 사용 이유를 말해야 합니다.`);
+  assert.ok(first.displayed.some(text => text.startsWith(p.usage_ko + "\n\n")));
+}
+const speakUp = patternsContext.__patterns[59];
+assert.equal(speakUp.title, "Speak up (더 크게 말하다 / 의견을 말하다).");
+const second = await run(1, { text: "test" }, "if는 의견을 말할 조건을 붙여요.", { p: speakUp, exIdx: 1, ex: speakUp.examples[1] });
+assert.ok(second.spoken.some(item => item.text.startsWith("if는")), "둘째 예문의 단어 설명은 기존대로 유지해야 합니다.");
+assert.ok(second.spoken.every(item => item.text !== speakUp.usage_ko));
+for (const recognition of [{ text: "앞부분만 잘못 인식된 내용" }, null]) {
+  const answerOnly = await run(2, recognition, "", { answerOnly: true });
+  assert.equal(answerOnly.checked.length, 0, "정답 표시 전용 세션은 채점 요청을 보내면 안 됩니다.");
+  assert.ok(answerOnly.displayed.includes("최종 문장:\nI tend to shop on Sundays."));
+  assert.ok(answerOnly.displayed.every(text => !text.includes("틀렸어요") && !text.includes("확인 중") && !text.includes("잘못 인식")));
+  assert.equal(answerOnly.spoken.filter(item => item.lang === "en-US").length, 1, "저장된 정답 음성은 한 번 유지해야 합니다.");
+}
 console.log("Session 1 explanation tests passed");
