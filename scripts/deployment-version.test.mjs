@@ -14,6 +14,9 @@ assert.match(worker, /const CACHE = "et-" \+ self\.APP_VERSION/, "버전 변경 
 assert.match(workflow, /path:\s*web/, "배포 작업은 web 폴더를 올려야 합니다.");
 assert.match(index, /id="btn-home-day-prev"/, "홈 화면에 이전 Day 버튼이 필요합니다.");
 assert.match(index, /id="btn-home-day-next"/, "홈 화면에 다음 Day 버튼이 필요합니다.");
+assert.match(index, /id="tab-settings-patterns"/, "설정에 패턴 선택 탭이 필요합니다.");
+assert.match(index, /id="pattern-selection-list"/, "선택 가능한 전체 패턴 목록이 필요합니다.");
+assert.ok(index.indexOf('src="day-tasks.js"') < index.indexOf('src="app.js"'), "선택한 커리큘럼을 앱 시작 전에 불러와야 합니다.");
 assert.doesNotMatch(index, /id="btn-retry"/, "안내 실패는 버튼을 기다리지 않고 자동 재시도해야 합니다.");
 assert.match(app, /function moveHomeDay\(direction\)/, "홈 화면 Day 이동 처리가 필요합니다.");
 assert.match(app, /LS\.progress = \{ day, pos: 0 \}/, "Day 이동 시 해당 Day의 첫 문제부터 시작해야 합니다.");

@@ -1,7 +1,33 @@
 "use strict";
 
 const PATTERNS_PER_DAY = 2;
-const TOTAL_DAYS = Math.ceil(PATTERNS.length / PATTERNS_PER_DAY);
+function readEnabledPatterns() {
+  let nums;
+  try { nums = JSON.parse(localStorage.getItem("enabledPatternNums_v1")); } catch {}
+  return Array.isArray(nums) ? PATTERNS.filter(p => nums.includes(p.num)) : PATTERNS.slice();
+}
+let ACTIVE_PATTERNS = readEnabledPatterns();
+let TOTAL_DAYS = Math.ceil(ACTIVE_PATTERNS.length / PATTERNS_PER_DAY);
+
+function setEnabledPatternNums(nums) {
+  const patterns = PATTERNS.filter(p => nums.includes(p.num));
+  if (JSON.stringify(patterns.map(p => p.num)) === JSON.stringify(ACTIVE_PATTERNS.map(p => p.num))) return false;
+  localStorage.setItem("enabledPatternNums_v1", JSON.stringify(patterns.map(p => p.num)));
+  ACTIVE_PATTERNS = patterns;
+  TOTAL_DAYS = Math.ceil(patterns.length / PATTERNS_PER_DAY);
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith("reviewPicks_")) localStorage.removeItem(key);
+  }
+  return true;
+}
+
+function remapProgressForSelection(progress, previousPatterns, nextPatterns, anchorNum) {
+  if (!nextPatterns.length) return { day: 1, pos: 0 };
+  const anchor = anchorNum ?? previousPatterns[(progress.day - 1) * PATTERNS_PER_DAY]?.num ?? 1;
+  const index = nextPatterns.findIndex(p => p.num >= anchor);
+  return { day: Math.floor((index < 0 ? nextPatterns.length - 1 : index) / PATTERNS_PER_DAY) + 1, pos: 0 };
+}
 const REMOVED_LEGACY_PATTERN_NUMS = [
   5, 15, 23, 25, 29, 35, 39, 43, 45, 49, 53, 57, 59, 61, 63, 71,
   91, 95, 99, 101, 103, 105, 111, 113, 119, 121, 123, 125, 129, 131, 133,
@@ -12,7 +38,7 @@ const REMOVED_CURATED_PATTERN_NUMS = [43, 56, 58, 66, 100, 112, 117, 134, 163, 1
 function mapCuratedDayToDeduped(day) {
   const completed = Math.max(0, (day - 1) * PATTERNS_PER_DAY);
   const retainedBefore = completed - REMOVED_CURATED_PATTERN_NUMS.filter(num => num <= completed).length;
-  return Math.min(TOTAL_DAYS, Math.floor(retainedBefore / PATTERNS_PER_DAY) + 1);
+  return Math.min(Math.ceil(PATTERNS.length / PATTERNS_PER_DAY), Math.floor(retainedBefore / PATTERNS_PER_DAY) + 1);
 }
 
 function mapLegacyDayToCurated(day) {
@@ -24,8 +50,9 @@ function mapLegacyDayToCurated(day) {
 /* ==================== 하루 커리큘럼 로직 (DOM 비의존, 테스트 가능) ==================== */
 
 function dayPatterns(day) {
+  if (day < 1) return [];
   const start = (day - 1) * PATTERNS_PER_DAY;
-  return PATTERNS.slice(start, start + PATTERNS_PER_DAY);
+  return ACTIVE_PATTERNS.slice(start, start + PATTERNS_PER_DAY);
 }
 
 /* 전체 복습은 최근 복습과 겹치지 않는 이전 패턴에서 날짜별로 고른다. */
@@ -35,7 +62,9 @@ function getReviewPicks(day, pool) {
   try { cachedNums = JSON.parse(localStorage.getItem(key)); } catch {}
   if (Array.isArray(cachedNums)) {
     const found = cachedNums.map(n => pool.find(p => p.num === n)).filter(Boolean);
-    if (found.length === 2 && isPhrasalPattern(found[0]) !== isPhrasalPattern(found[1])) return found;
+    const mixed = pool.some(isPhrasalPattern) && pool.some(p => !isPhrasalPattern(p));
+    if (found.length === Math.min(2, pool.length) && new Set(found.map(p => p.num)).size === found.length &&
+      (!mixed || isPhrasalPattern(found[0]) !== isPhrasalPattern(found[1]))) return found;
   }
   const yesterday = new Set(dayPatterns(day - 1).map(p => p.num));
   const twoDaysAgo = new Set(day > 2 ? dayPatterns(day - 2).map(p => p.num) : []);
@@ -48,16 +77,18 @@ function getReviewPicks(day, pool) {
   const phrasal = older(pool.filter(isPhrasalPattern));
   const regular = older(pool.filter(p => !isPhrasalPattern(p)));
   const previousPicks = day > 2
-    ? getReviewPicks(day - 1, PATTERNS.slice(0, (day - 2) * PATTERNS_PER_DAY))
+    ? getReviewPicks(day - 1, ACTIVE_PATTERNS.slice(0, (day - 2) * PATTERNS_PER_DAY))
     : [];
   const pick = (patterns, offset) => {
     const fresh = patterns.filter(p => !previousPicks.some(previous => previous.num === p.num));
     const choices = fresh.length ? fresh : patterns;
     return choices[Math.floor(((day * 0.618033988749895 + offset) % 1) * choices.length)];
   };
-  const picks = phrasal.length && regular.length
-    ? [pick(phrasal, 0), pick(regular, 0.5)]
-    : pool.slice(0, Math.min(2, pool.length));
+  const picks = phrasal.length && regular.length ? [pick(phrasal, 0), pick(regular, 0.5)] : [];
+  if (!picks.length && pool.length) {
+    picks.push(pick(older(pool), 0));
+    if (pool.length > 1) picks.push(pick(older(pool.filter(p => p.num !== picks[0].num)), 0.5));
+  }
   localStorage.setItem(key, JSON.stringify(picks.map(p => p.num)));
   return picks;
 }
@@ -69,6 +100,7 @@ function isPhrasalPattern(p) {
 
 function buildSessions(day) {
   const today = dayPatterns(day);
+  if (!today.length) return [];
   const patternTasks = (patterns, trainingLevel, showTarget) => patterns.flatMap(p =>
     p.examples.map((ex, exIdx) => ({ kind: "pattern", p, ex, exIdx, trainingLevel, showTarget }))
   );
@@ -88,7 +120,7 @@ function buildSessions(day) {
       const twoDaysAgo = dayPatterns(day - 2);
       sessions.push({ name: "세션4 2일 전 복습", tasks: oneExampleTasks(twoDaysAgo, 2, true, 1000, true) });
     }
-    const pool = PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
+    const pool = ACTIVE_PATTERNS.slice(0, (day - 1) * PATTERNS_PER_DAY);
     const picks = getReviewPicks(day, pool);
     sessions.push({ name: day > 2 ? "세션5 전체 복습" : "세션4 전체 복습", tasks: oneExampleTasks(picks, 2, true, 0, day === 2) });
   }

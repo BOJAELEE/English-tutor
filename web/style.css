@@ -64,6 +64,7 @@ h1 { font-size: 24px; }
   cursor: pointer;
 }
 .big-btn:active { background: #3d58d8; }
+.big-btn:disabled { opacity: 0.4; cursor: default; }
 .warning { color: #ff9d6e; font-size: 14px; text-align: center; }
 
 .practice-header {
@@ -136,6 +137,17 @@ h1 { font-size: 24px; }
   background: #252a40; border: 1px solid #3a415e; border-radius: 10px;
   color: #eef0f6; font-size: 17px; padding: 14px;
 }
+
+.settings-tabs, .pattern-selection-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.settings-tabs [aria-pressed="true"] { background: #4f6ef7; }
+.settings-panel { display: flex; flex-direction: column; gap: 20px; }
+.settings-help { color: #c3cae0; font-size: 15px; line-height: 1.6; }
+.pattern-selection-list { max-height: 55vh; overflow-y: auto; border: 1px solid #3a415e; border-radius: 12px; }
+.pattern-option { display: flex; align-items: center; gap: 14px; padding: 14px; min-height: 64px; border-bottom: 1px solid #3a415e; cursor: pointer; touch-action: manipulation; }
+.pattern-option:last-child { border-bottom: none; }
+.pattern-option input { width: 24px; height: 24px; flex-shrink: 0; accent-color: #6ee7a0; }
+.pattern-option span { overflow-wrap: anywhere; font-size: 16px; line-height: 1.5; }
+.pattern-option small { display: block; color: #9aa3c0; font-size: 13px; }
 
 /* Fold 7 내부 화면 가로 모드: 여백을 줄여 안내문을 더 크게 표시 */
 @media (orientation: landscape) and (min-width: 700px) and (min-height: 600px) {

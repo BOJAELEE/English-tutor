@@ -86,7 +86,7 @@ Object.assign(waiterContext, {
   cancelActiveRequests: () => { for (const cancel of waiters) cancel(); },
 });
 const controlsStart = app.indexOf("function cancelCurrentWork()");
-const controlsEnd = app.indexOf("function openSettings", controlsStart);
+const controlsEnd = app.indexOf("let draftPatternNums", controlsStart);
 vm.runInContext(app.slice(controlsStart, controlsEnd), waiterContext);
 for (const [id, flag] of [["btn-back", "back"], ["btn-skip", "skip"], ["btn-quit", "quit"]]) {
   waiterContext.state = {};

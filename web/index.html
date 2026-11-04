@@ -56,6 +56,11 @@
     <h1>설정</h1>
     <button id="btn-settings-close" class="icon-btn">&#10005;</button>
   </header>
+  <nav class="settings-tabs" aria-label="설정 항목">
+    <button id="tab-settings-general" type="button" class="ctl-btn" aria-pressed="true">일반 설정</button>
+    <button id="tab-settings-patterns" type="button" class="ctl-btn" aria-pressed="false">패턴 선택</button>
+  </nav>
+  <div id="settings-general" class="settings-panel">
   <label class="field">
     <span>AI 엔진</span>
     <select id="input-engine">
@@ -115,6 +120,17 @@
     <textarea id="push-sub-output" readonly rows="4" style="width:100%;font-size:11px"></textarea>
     <button type="button" id="btn-copy-sub" class="ctl-btn">복사</button>
   </div>
+  </div>
+  <section id="settings-patterns" class="settings-panel hidden" aria-label="출제할 패턴 선택">
+    <p class="settings-help">체크한 패턴만 기존 순서대로 하루 2개씩 학습합니다. 해제한 패턴은 모든 학습·복습·회화에서 제외됩니다. 변경 후 저장을 눌러주세요.</p>
+    <div id="pattern-selection-summary" class="settings-help" role="status" aria-live="polite"></div>
+    <div class="pattern-selection-actions">
+      <button id="btn-patterns-all" type="button" class="ctl-btn">모두 선택</button>
+      <button id="btn-patterns-none" type="button" class="ctl-btn">모두 해제</button>
+    </div>
+    <div id="pattern-selection-list" class="pattern-selection-list"></div>
+    <p class="settings-help">Day가 바뀌면 현재 패턴 또는 다음 남은 패턴이 있는 Day의 첫 문제부터 시작합니다. 선택은 이 기기에 저장됩니다.</p>
+  </section>
   <button id="btn-settings-save" class="big-btn">저장</button>
   <button id="btn-reset" class="ctl-btn danger" style="margin-top:24px">학습 기록 전체 초기화</button>
 </div>

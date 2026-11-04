@@ -1388,6 +1388,7 @@ function sessionIntro(sessionName) {
 }
 
 async function runDay() {
+  if (!TOTAL_DAYS) return;
   const prog = LS.progress;
   let day = prog.day;
   let pos = prog.pos;
@@ -1476,21 +1477,25 @@ document.addEventListener("visibilitychange", () => {
 /* ==================== 이벤트 ==================== */
 function refreshHome() {
   const prog = LS.progress;
-  $("home-day").textContent = "Day " + prog.day;
-  $("btn-home-day-prev").disabled = prog.day <= 1;
-  $("btn-home-day-next").disabled = prog.day >= TOTAL_DAYS;
+  $("home-day").textContent = TOTAL_DAYS ? "Day " + prog.day : "선택한 패턴 없음";
+  $("btn-home-day-prev").disabled = !TOTAL_DAYS || prog.day <= 1;
+  $("btn-home-day-next").disabled = !TOTAL_DAYS || prog.day >= TOTAL_DAYS;
   const pats = dayPatterns(prog.day);
   const lines = pats.map(p => "패턴 " + p.num + ". " + p.title);
-  if (prog.day > 1) lines.push("+ 어제 복습 " + PATTERNS_PER_DAY + "개" + (prog.day > 2 ? ", 2일 전 복습 " + PATTERNS_PER_DAY + "개" : "") + ", 전체 복습 2개");
-  lines.push("+ 마무리 일상 회화");
+  if (pats.length) {
+    if (prog.day > 1) lines.push("+ 어제 복습 " + dayPatterns(prog.day - 1).length + "개" + (prog.day > 2 ? ", 2일 전 복습 " + dayPatterns(prog.day - 2).length + "개" : "") + ", 전체 복습 2개");
+    lines.push("+ 마무리 일상 회화");
+  } else lines.push("설정 → 패턴 선택에서 학습할 패턴을 선택해주세요.");
   $("home-plan").innerHTML = lines.join("<br>");
   const engineName = LS.engine === "gemini" ? "Gemini" : "Claude";
   $("home-warning").textContent = currentKey() ? "" : "설정에서 " + engineName + " API 키를 먼저 입력해주세요.";
   const resumed = prog.pos > 0;
   $("btn-start").textContent = resumed ? "이어서 학습" : "학습 시작";
+  $("btn-start").disabled = !pats.length;
 }
 
 function moveHomeDay(direction) {
+  if (!TOTAL_DAYS) return;
   const current = LS.progress;
   const day = Math.min(TOTAL_DAYS, Math.max(1, current.day + direction));
   if (day === current.day) return;
@@ -1502,6 +1507,7 @@ $("btn-home-day-prev").onclick = () => moveHomeDay(-1);
 $("btn-home-day-next").onclick = () => moveHomeDay(1);
 
 $("btn-start").onclick = async () => {
+  if (!TOTAL_DAYS) { openSettings(); showSettingsTab("patterns"); return; }
   if (!currentKey()) { openSettings(); return; }
   primeReadyTone();
   state.running = true; state.paused = false; state.quit = false;
@@ -1555,13 +1561,94 @@ $("btn-quit").onclick = () => {
   cancelCurrentWork();
 };
 
+let draftPatternNums = new Set();
+let settingsProgress = null;
+let settingsAnchorNum;
+
+function showSettingsTab(name) {
+  ["general", "patterns"].forEach(tab => {
+    $("settings-" + tab).classList.toggle("hidden", tab !== name);
+    $("tab-settings-" + tab).setAttribute("aria-pressed", String(tab === name));
+  });
+}
+
+function selectedPatternDraft() {
+  return PATTERNS.filter(p => draftPatternNums.has(p.num));
+}
+
+function selectionProgressPreview(patterns) {
+  const unchanged = JSON.stringify(patterns.map(p => p.num)) === JSON.stringify(ACTIVE_PATTERNS.map(p => p.num));
+  return unchanged ? settingsProgress : remapProgressForSelection(settingsProgress, ACTIVE_PATTERNS, patterns, settingsAnchorNum);
+}
+
+function updatePatternSelectionPreview() {
+  const patterns = selectedPatternDraft();
+  const days = Math.ceil(patterns.length / PATTERNS_PER_DAY);
+  const mapped = selectionProgressPreview(patterns);
+  $("pattern-selection-summary").textContent = `선택 ${patterns.length} / ${PATTERNS.length}개 · 총 ${days}일` +
+    (days ? ` · 저장 후 Day ${mapped.day}` : " · 출제할 패턴이 없습니다.");
+  $("input-day").value = mapped.day;
+  $("input-day").max = Math.max(1, days);
+  $("input-day").disabled = !days;
+  $("day-range-label").textContent = days ? "현재 Day (1~" + days + ")" : "현재 Day (패턴 선택 필요)";
+  const daysByNum = new Map(patterns.map((p, i) => [p.num, Math.floor(i / PATTERNS_PER_DAY) + 1]));
+  for (const row of $("pattern-selection-list").children) {
+    const day = daysByNum.get(Number(row.dataset.patternNum));
+    row.querySelector("small").textContent = day ? "Day " + day : "출제 안 함";
+  }
+}
+
+function renderPatternSelection() {
+  const list = $("pattern-selection-list");
+  list.textContent = "";
+  PATTERNS.forEach(p => {
+    const row = document.createElement("label");
+    row.className = "pattern-option";
+    row.dataset.patternNum = p.num;
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = draftPatternNums.has(p.num);
+    checkbox.setAttribute("aria-label", "패턴 " + p.num + ". " + p.title);
+    checkbox.onchange = () => {
+      if (checkbox.checked) draftPatternNums.add(p.num);
+      else draftPatternNums.delete(p.num);
+      updatePatternSelectionPreview();
+    };
+    const title = document.createElement("span");
+    title.textContent = p.num + ". " + p.title;
+    title.appendChild(document.createElement("small"));
+    row.append(checkbox, title);
+    list.appendChild(row);
+  });
+  updatePatternSelectionPreview();
+}
+
+$("tab-settings-general").onclick = () => showSettingsTab("general");
+$("tab-settings-patterns").onclick = () => showSettingsTab("patterns");
+$("btn-patterns-all").onclick = () => {
+  draftPatternNums = new Set(PATTERNS.map(p => p.num));
+  renderPatternSelection();
+};
+$("btn-patterns-none").onclick = () => {
+  draftPatternNums.clear();
+  renderPatternSelection();
+};
+
 function openSettings() {
+  settingsProgress = LS.progress;
+  const today = dayPatterns(settingsProgress.day);
+  const tasks = buildDayTasks(settingsProgress.day);
+  const task = tasks[settingsProgress.pos];
+  settingsAnchorNum = (today.find(p => p.num === task?.p?.num) || today[0])?.num;
+  if (tasks.length && settingsProgress.pos >= tasks.length) {
+    settingsAnchorNum = ACTIVE_PATTERNS[settingsProgress.day * PATTERNS_PER_DAY]?.num ?? PATTERNS.length + 1;
+  }
+  draftPatternNums = new Set(ACTIVE_PATTERNS.map(p => p.num));
+  renderPatternSelection();
+  showSettingsTab("general");
   $("input-engine").value = LS.engine;
   $("input-apikey").value = LS.apiKey;
   $("input-geminikey").value = LS.geminiKey;
-  $("input-day").value = LS.progress.day;
-  $("input-day").max = TOTAL_DAYS;
-  $("day-range-label").textContent = "현재 Day (1~" + TOTAL_DAYS + ")";
   populateVoiceSelect($("input-korean-voice"), "ko-KR", LS.koreanVoice);
   populateVoiceSelect($("input-english-voice"), "en-US", LS.englishVoice);
   $("input-tts-engine").value = LS.ttsEngine;
@@ -1585,6 +1672,9 @@ $("btn-settings-save").onclick = () => {
   LS.googleTtsKey = $("input-google-tts-key").value.trim();
   LS.googleKoreanVoice = $("input-google-korean-voice").value;
   LS.googleEnglishVoice = $("input-google-english-voice").value;
+  const patterns = selectedPatternDraft();
+  const mapped = selectionProgressPreview(patterns);
+  if (setEnabledPatternNums(patterns.map(p => p.num))) LS.progress = mapped;
   const d = parseInt($("input-day").value, 10);
   if (d >= 1 && d <= TOTAL_DAYS && d !== LS.progress.day) {
     LS.progress = { day: d, pos: 0 };
