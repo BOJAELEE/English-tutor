@@ -38,6 +38,7 @@ const sizePrompt = {
   core_meaning: "L 사이즈 재고 확인",
 };
 assert.equal(context.__parseTrainingPrompt(JSON.stringify(sizePrompt), true)?.target_ko, sizePrompt.target_ko, "Day 31의 L 사이즈 같은 정상 표기를 영어 정답으로 오해하면 안 됩니다.");
+assert.ok(context.__parseTrainingPrompt(JSON.stringify({ ...sizePrompt, situation: "옷 가게에서 L 사이즈를 찾아요." }), true), "상황의 정상 치수 기호도 거부하면 안 됩니다.");
 assert.ok(context.__parseTrainingPrompt(JSON.stringify({ ...sizePrompt, core_meaning: "" }), true), "화면에 쓰지 않는 핵심 의미 필드가 비어도 정상 번역은 유지해야 합니다.");
 assert.equal(context.__parseTrainingPrompt(JSON.stringify({ ...sizePrompt, target_ko: sizePrompt.target_en }), true), null, "영어 정답 자체를 한국어 질문으로 표시하면 안 됩니다.");
 assert.equal(context.__parseTrainingPrompt(JSON.stringify({ ...sizePrompt, target_ko: `다음 문장을 말하세요: ${sizePrompt.target_en}` }), true), null, "한국어 안내에 영어 정답 전체를 섞어도 차단해야 합니다.");
@@ -98,7 +99,7 @@ assert.equal(context.__parseTrainingPrompt(JSON.stringify(tooLong), true), null,
 
 assert.match(app, /const TRAINING_REQUEST_TIMEOUT_MS = 30000/, "훈련 안내에는 별도 대기 시간이 필요합니다.");
 assert.match(app, /const MAX_TRAINING_SITUATION_LENGTH = 28/, "상황 설명의 최대 길이가 필요합니다.");
-assert.match(app, /training_v10_short_t/, "기존의 긴 안내 캐시는 재사용하면 안 됩니다.");
+assert.match(app, /training_v11_fixed_ko_t/, "검수 번역을 쓰기 전의 안내 캐시는 재사용하면 안 됩니다.");
 assert.match(app, /_nosituation/, "상황 없는 세션은 별도 캐시를 사용해야 합니다.");
 assert.match(app, /요청한 경우에만 reason_ko도 포함/, "세션1의 이유 필드를 시스템 안내가 허용해야 합니다.");
 assert.match(app, /reason_ko는 35자 이내의 한국어 설명 속에 근거가 되는 짧은 영어 표현/, "단어별 설명은 짧은 영어 표현을 인용해야 합니다.");
@@ -108,6 +109,8 @@ const examples = [
   "A few friends are coming over tonight.",
   "Thanks for coming over on such short notice.",
 ];
+const examples_ko = ["저녁 먹으러 놀러 올래?", "오늘 밤에 친구 몇 명이 놀러 올 거야.", "갑자기 연락했는데도 와 줘서 고마워."];
+const testPattern = { num: 1, title: "Come over (놀러 오다).", examples, examples_ko };
 const requests = [];
 const tokenBudgets = [];
 const savedKeys = [];
@@ -130,7 +133,8 @@ vm.runInContext(
   promptContext
 );
 for (exampleIndex = 0; exampleIndex < examples.length; exampleIndex++) {
-  await promptContext.__getTrainingPrompt({ num: 1, title: "Come over (놀러 오다).", examples }, exampleIndex, true, true, true);
+  const result = await promptContext.__getTrainingPrompt(testPattern, exampleIndex, true, true, true);
+  assert.equal(result.target_ko, examples_ko[exampleIndex], "AI가 다른 번역을 반환해도 저장한 예문별 번역만 사용해야 합니다.");
 }
 assert.equal(requests.length, 3, "기존의 모호한 설명 캐시 대신 세 예문을 새로 준비해야 합니다.");
 assert.ok(tokenBudgets.every(count => count >= 600), "설명까지 포함한 안내문이 잘리지 않도록 응답 길이를 확보해야 합니다.");
@@ -141,6 +145,7 @@ for (const request of requests.slice(1)) {
 assert.ok(requests.every(request => request.includes("35자 이내")), "세션1의 설명은 짧게 요청해야 합니다.");
 assert.ok(requests.every(request => request.includes("긴 절은 인용하지 마세요")), "설명이 정답 문장을 길게 반복하면 안 됩니다.");
 assert.ok(requests.every(request => request.includes("문장을 자르거나 말줄임표를 쓰지 마세요")), "짧은 설명을 새 문장으로 작성해야 합니다.");
+assert.ok(requests.every(request => !request.includes('"target_ko"')), "AI에게 한국어 목표 문장을 생성하도록 요청하면 안 됩니다.");
 assert.ok(savedKeys.every(key => key.includes("_reason_v6")), "설명 실패를 분리한 안내는 이전 캐시와 구분해야 합니다.");
 
 const retryRequests = [];
@@ -160,7 +165,7 @@ vm.runInContext(
     + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
   retryContext
 );
-await retryContext.__getTrainingPrompt({ num: 1, title: "Come over (놀러 오다).", examples }, 0, true, true, true);
+await retryContext.__getTrainingPrompt(testPattern, 0, true, true, true);
 assert.equal(retryRequests.length, 2, "안내문 형식 오류에는 같은 예문을 한 번 더 요청해야 합니다.");
 assert.match(retryRequests[1], /이전 응답/, "재요청은 무엇을 고칠지 명시해야 합니다.");
 
@@ -183,13 +188,13 @@ vm.runInContext(
     + "globalThis.__getTrainingPrompt = getTrainingPrompt;",
   lengthRetryContext
 );
-const rewritten = await lengthRetryContext.__getTrainingPrompt({ num: 1, title: "Come over (놀러 오다).", examples }, 0, true, true, true);
+const rewritten = await lengthRetryContext.__getTrainingPrompt(testPattern, 0, true, true, true);
 assert.equal(lengthRetryRequests.length, 2, "35자 초과 설명은 같은 문제에서 짧은 새 문장으로 다시 작성해야 합니다.");
 assert.equal(rewritten.reason_ko, "come over는 집에 놀러 갈 때 씁니다.", "완성된 새 문장을 사용해야 합니다.");
 assert.match(lengthRetryRequests[1], /잘라내지 말고/, "재요청도 문장 중간을 자르지 않도록 안내해야 합니다.");
 assert.doesNotMatch(lengthRetryRequests[1], /"target_en"/, "설명 재작성 때문에 정상 질문 전체를 다시 생성하면 안 됩니다.");
 
-async function requestWithResponses(responses, cache = {}, state = {}, pattern = { num: 1, title: "Come over (놀러 오다).", examples }, exIdx = 0, withReason = true) {
+async function requestWithResponses(responses, cache = {}, state = {}, pattern = testPattern, exIdx = 0, withReason = true) {
   const requests = [];
   const options = [];
   const saved = [];
@@ -198,7 +203,7 @@ async function requestWithResponses(responses, cache = {}, state = {}, pattern =
     callLLM: async (request, tokens, _system, requestOptions) => {
       requests.push(request);
       options.push(requestOptions);
-      if (request.includes('"target_en"')) assert.ok(tokens >= 600, "이유 설명이 없는 안내도 출력 길이가 충분해야 합니다.");
+      if (request.includes('"situation"')) assert.ok(tokens >= 600, "이유 설명이 없는 안내도 출력 길이가 충분해야 합니다.");
       assert.ok(requests.length <= responses.length, "정해진 요청 수를 초과하면 안 됩니다.");
       const response = responses[requests.length - 1];
       if (response instanceof Error) throw response;
@@ -221,7 +226,7 @@ for (const failedRewrite of [{ reason_ko: longReason.reason_ko }, {}, new Error(
   const failed = await requestWithResponses([longReason, failedRewrite]);
   assert.equal(failed.requests.length, 2, "설명은 한 번만 다시 작성해야 합니다.");
   assert.equal(failed.result.target_en, examples[0], "정상 질문을 유지해야 합니다.");
-  assert.equal(failed.result.target_ko, expected.target_ko);
+  assert.equal(failed.result.target_ko, examples_ko[0]);
   assert.equal(failed.result.reason_ko, "", "재작성 실패 시 긴 설명을 자르거나 재생하지 말고 생략해야 합니다.");
   assert.equal(failed.saved.length, 1, "정상 질문은 설명 실패 뒤에도 저장해야 합니다.");
   assert.equal(failed.options[1].retryTransient, false, "설명 재작성 요청은 통신 실패에도 반복하지 않아야 합니다.");
@@ -243,7 +248,7 @@ const day31 = await requestWithResponses([sizePrompt], {}, {}, day31Pattern, 0, 
 assert.equal(day31.requests.length, 1, "정상 L 사이즈 안내는 재요청 없이 출제되어야 합니다.");
 assert.equal(day31.result.target_ko, sizePrompt.target_ko);
 assert.equal(day31.options[0].retryTransient, false, "질문 통신 실패는 자동 대기 흐름에서 처리하고 내부 중복 재시도는 하지 않아야 합니다.");
-const cachedBase = { training_v10_short_t1_reason_v6_p1_e0: { ...longReason, reason_ko: "" } };
+const cachedBase = { training_v11_fixed_ko_t1_reason_v6_p1_e0: { ...longReason, reason_ko: "" } };
 const restored = await requestWithResponses([{ reason_ko: "come over는 집에 놀러 갈 때 씁니다." }], cachedBase);
 assert.equal(restored.requests.length, 1, "캐시된 정상 질문은 유지하고 빠진 설명만 다시 준비해야 합니다.");
 assert.doesNotMatch(restored.requests[0], /"target_en"/);
