@@ -620,7 +620,7 @@ async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT, options
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
       generationConfig: {
-        maxOutputTokens: (maxTokens || 400) + 2000, // thinking 토큰 여유분
+        maxOutputTokens: (maxTokens || 400) + 4096, // thinking 토큰 여유분
         ...(options.responseJson || systemPrompt === SYSTEM_PROMPT ? { responseMimeType: "application/json" } : {}),
       },
     }),
@@ -646,7 +646,7 @@ async function callGemini(user, maxTokens, systemPrompt = SYSTEM_PROMPT, options
   const data = await res.json();
   const cand = (data.candidates && data.candidates[0]) || {};
   const parts = (cand.content && cand.content.parts) || [];
-  const text = parts.map(p => p.text || "").join("");
+  const text = parts.filter(p => !p.thought).map(p => p.text || "").join("");
   if (!text) {
     const err = new Error("Gemini 빈 응답 (finishReason: " + (cand.finishReason || "?") + ")");
     err.status = 503; // 재시도 대상으로 처리
@@ -683,31 +683,44 @@ async function callClaude(user, maxTokens, systemPrompt = SYSTEM_PROMPT, options
 
 function parseJson(text) {
   // 코드펜스 제거
-  let s = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+  let s = String(text || "").replace(/```json/gi, "").replace(/```/g, "").trim();
   const start = s.indexOf("{");
   if (start > 0) s = s.slice(start);
   try {
     return JSON.parse(s);
   } catch {
-    // 잘린 JSON 복구: 열린 문자열/중괄호 닫기
+    // 잘린 JSON·배열 래핑·후행 설명 복구
     return JSON.parse(repairJson(s));
   }
 }
 
 function repairJson(s) {
-  let inStr = false, esc = false, depth = 0;
+  let inStr = false, esc = false, depth = 0, started = false;
   let out = "";
   for (const ch of s) {
+    if (esc) {
+      out += ch;
+      esc = false;
+      continue;
+    }
+    if (inStr && ch === "\r") continue;
+    if (inStr && ch === "\n") { out += "\\n"; continue; }
     out += ch;
-    if (esc) { esc = false; continue; }
-    if (ch === "\\") { esc = true; continue; }
+    if (ch === "\\") { if (inStr) esc = true; continue; }
     if (ch === '"') { inStr = !inStr; continue; }
     if (!inStr) {
-      if (ch === "{") depth++;
-      else if (ch === "}") depth--;
+      if (ch === "{") { started = true; depth++; }
+      else if (ch === "}") {
+        depth--;
+        if (started && depth === 0) break;
+      }
     }
   }
+  if (esc) out = out.slice(0, -1);
   if (inStr) out += '"';       // 열린 문자열 닫기
+  // 잘린 마지막 키/콜론/쉼표 제거
+  out = out.replace(/(?:,\s*"[^"]*"\s*(?::\s*)?|,\s*)$/, "");
+  out = out.replace(/^(\{\s*)"[^"]*"\s*(?::\s*)?$/, "$1");
   while (depth-- > 0) out += "}"; // 열린 중괄호 닫기
   return out;
 }
@@ -774,6 +787,16 @@ function isValidTrainingPrompt(val, showTarget, targetEn = "", showSituation = t
     (!withReason || isConciseTrainingReason(val.reason_ko));
 }
 
+function normalizeTrainingSituation(situation) {
+  if (typeof situation !== "string") return situation;
+  return situation
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:상황|배경)\s*[:：]\s*/i, "")
+    .replace(/^["“”'‘’]+|["“”'‘’]+$/g, "")
+    .trim();
+}
+
 function parseTrainingPromptText(raw, showTarget, showSituation = true, withReason = false, fixed = {}) {
   const labels = { 원문: "target_en", 상황: "situation", 문장: "target_ko", 핵심: "core_meaning", 이유: "reason_ko" };
   const val = { situation: "", target_ko: "" };
@@ -783,15 +806,61 @@ function parseTrainingPromptText(raw, showTarget, showSituation = true, withReas
     if (match) val[labels[match[1]]] = match[2].trim().replace(/^["“”]|["“”]$/g, "");
   }
   const prompt = { ...val, ...fixed };
+  if (typeof prompt.situation === "string") prompt.situation = normalizeTrainingSituation(prompt.situation);
   return isValidTrainingPrompt(prompt, showTarget, "", showSituation, withReason) ? prompt : null;
 }
 
 function parseTrainingPrompt(raw, showTarget, showSituation = true, withReason = false, fixed = {}) {
   try {
     const val = { ...parseJson(raw), ...fixed };
+    if (typeof val.situation === "string") val.situation = normalizeTrainingSituation(val.situation);
     if (isValidTrainingPrompt(val, showTarget, "", showSituation, withReason)) return val;
   } catch {}
   return parseTrainingPromptText(raw, showTarget, showSituation, withReason, fixed);
+}
+
+function diagnoseTrainingPromptFailure(raw, showTarget, showSituation = true, fixed = {}) {
+  let parsed = null;
+  try {
+    const jsonVal = parseJson(raw);
+    if (jsonVal && typeof jsonVal === "object") parsed = { ...jsonVal, ...fixed };
+  } catch {}
+  if (!parsed) {
+    const labels = { 원문: "target_en", 상황: "situation", 문장: "target_ko", 핵심: "core_meaning", 이유: "reason_ko" };
+    const textVal = { situation: "", target_ko: "" };
+    let matched = false;
+    for (const line of String(raw || "").replace(/\*\*/g, "").split(/\r?\n/)) {
+      const normalized = line.trim().replace(/^[-•]\s*/, "");
+      const match = normalized.match(/^(원문|상황|문장|핵심|이유)\s*[:：]\s*(.+)$/);
+      if (match) { textVal[labels[match[1]]] = match[2].trim().replace(/^["“”]|["“”]$/g, ""); matched = true; }
+    }
+    if (matched) parsed = { ...textVal, ...fixed };
+  }
+  if (!parsed) return "JSON 객체 형식이 올바르지 않았습니다. 부연 설명 없이 순수 JSON 객체만 출력하세요.";
+  if (showSituation) {
+    if (typeof parsed.situation !== "string" || !parsed.situation.trim()) {
+      return "situation 필드가 비어 있습니다. 한국어 상황 한 문장을 반드시 채우세요.";
+    }
+    const cleaned = normalizeTrainingSituation(parsed.situation);
+    const body = cleaned.replace(/[.!?。]+$/, "");
+    if (!/[가-힣]/.test(cleaned)) return "situation을 순수 한국어로 작성하세요.";
+    if (/[A-Za-z]{2,}/.test(cleaned)) return "situation에 영어 단어가 포함되었습니다. 영문자 없이 한국어로만 작성하세요.";
+    if (body.length < 6) return "situation이 너무 짧습니다. 12~22자 한국어 한 문장으로 작성하세요.";
+    if (body.length > MAX_TRAINING_SITUATION_LENGTH) {
+      return `situation(${body.length}자)이 ${MAX_TRAINING_SITUATION_LENGTH}자를 초과했습니다. 12~22자 이내의 훨씬 짧은 한 문장으로 줄이세요.`;
+    }
+    if (/[.!?。]/.test(body)) return "situation에 문장 부호가 여러 번 들어가 두 문장이 되었습니다. 한 문장으로만 작성하세요.";
+  }
+  const target = showTarget ? parsed.target_ko : parsed.core_meaning;
+  if (typeof target !== "string" || !/[가-힣]/.test(target)) {
+    return showTarget ? "target_ko가 유효하지 않습니다." : "core_meaning을 짧은 한국어 핵심 의미로 채우세요.";
+  }
+  const text = [showSituation ? normalizeTrainingSituation(parsed.situation) : "", target].join(" ");
+  const generic = /일상적인 상황|원하는 내용을 공손하게|내 생각이나 요청|자연스럽게 전달|구체적인 내용|상대에게 내|원하는 바/;
+  if (generic.test(text)) return "추상적 표현을 빼고 실제 대화 장면만 구체적으로 짧게 쓰세요.";
+  const englishAnswer = String(parsed.target_en || "").trim().replace(/[.!?]+$/, "").toLowerCase();
+  if (englishAnswer && text.toLowerCase().includes(englishAnswer)) return "한국어 안내에 영어 정답 문장을 포함하지 마세요.";
+  return "요청한 JSON 필드를 형식에 맞게 다시 작성하세요.";
 }
 
 async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, withReason = false) {
@@ -807,7 +876,7 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
     ? "한국어 목표 문장은 이미 검수되어 저장되어 있습니다. 번역이나 target_ko, target_en 필드를 생성하지 마세요."
     : "core_meaning에는 완성된 번역 문장이 아닌 짧은 핵심 의미를 쓰세요.";
   const situationGuide = showSituation
-    ? `situation은 ${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 한 문장만 쓰세요. 목표 문장을 이해하는 데 필요한 배경 하나만 남기고, 원문에 없는 의도·원인·시간·조건은 추가하지 마세요. 영어 표현과 패턴 이름도 넣지 마세요. L, M 같은 치수 기호 외에는 고유명사도 한글로 표기하세요. 예: "기차가 연착돼 약속에 늦고 있어요."`
+    ? `situation은 ${MAX_TRAINING_SITUATION_LENGTH}자 이내(15~22자 권장)의 짧은 한국어 한 문장만 쓰세요. 마침표는 문장 끝에만 한 번 쓰고, 목표 문장을 이해하는 데 필요한 배경 하나만 남기세요. 원문에 없는 의도·원인·시간·조건이나 '구체적인 내용' 같은 추상 표현은 쓰지 마세요. 영어 표현과 패턴 이름도 넣지 마세요. L, M 같은 치수 기호 외에는 고유명사도 한글로 표기하세요. 예: "기차가 연착돼 약속에 늦고 있어요."`
     : "situation은 빈 문자열로 두세요.";
   const reasonGuide = withReason
     ? (exIdx === 0
@@ -817,13 +886,14 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
     : "";
   let failureReason = "안내 응답의 형식이 맞지 않아요.";
   if (!val) {
+    let retryDiagnosis = "";
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         const raw = await callLLM(
           `학습 목표 영어 문장: "${ex}" (패턴: ${p.title})\n검수된 한국어 목표 문장: "${fixed.target_ko}"\n` +
           `이 두 문장에만 맞는 구체적인 훈련 안내를 만드세요. ${situationGuide} ${levelGuide} ${reasonGuide}\n` +
           `JSON: {"situation":"${showSituation ? `${MAX_TRAINING_SITUATION_LENGTH}자 이내의 짧은 한국어 상황` : ""}"${showTarget ? "" : ', "core_meaning":"짧은 한국어 핵심 의미"'}${withReason ? ', "reason_ko":"영어 단어를 인용한 짧은 한국어 설명"' : ""}}` +
-          (attempt ? "\n이전 응답이 안내 형식에 맞지 않았습니다. 요청한 필드를 채운 유효한 JSON 객체만 다시 출력하세요. 목표 문장은 새로 번역하지 마세요." : ""),
+          (attempt ? `\n이전 응답이 안내 형식에 맞지 않았습니다(${retryDiagnosis}). 요청한 필드를 채운 유효한 JSON 객체만 다시 출력하세요. 목표 문장은 새로 번역하지 마세요.` : ""),
           600,
           TRAINING_PROMPT_SYSTEM,
           { timeoutMs: TRAINING_REQUEST_TIMEOUT_MS, responseJson: true, retryTransient: false }
@@ -833,6 +903,11 @@ async function getTrainingPrompt(p, exIdx, showTarget, showSituation = true, wit
           val = candidate;
           break;
         }
+        retryDiagnosis = diagnoseTrainingPromptFailure(raw, showTarget, showSituation, fixed);
+        console.warn(`훈련 안내 형식 불일치 (시도 ${attempt + 1}):`, retryDiagnosis, raw);
+      }
+      if (!val && retryDiagnosis) {
+        failureReason = `안내 응답의 형식이 맞지 않아요 (${retryDiagnosis.split(".")[0]}).`;
       }
     } catch (e) {
       if ((e && e.cancelled) || state.skip || state.back || state.quit) throw e;

@@ -273,4 +273,46 @@ assert.match(app, /responseJson: true/, "훈련 안내 요청은 JSON 응답을 
 assert.match(app, /function fetchWithTimeout\(url, options = \{\}, timeoutMs = LLM_REQUEST_TIMEOUT_MS\)/, "요청별 시간 제한을 전달할 수 있어야 합니다.");
 assert.match(app, /async function callClaude[\s\S]*?\}, options\.timeoutMs\);/, "Claude 훈련 안내에 별도 시간 제한을 적용해야 합니다.");
 assert.doesNotMatch(app, /basicTrainingPrompt|koreanPatternMeaning|prompt\.isFallback/, "문법 표기를 임시 안내로 만들면 안 됩니다.");
+assert.match(app, /parts\.filter\(p => !p\.thought\)/, "Gemini 응답에서 thought 파트는 제외하고 텍스트만 읽어야 합니다.");
+
+const day33Pattern = patternContext.__patterns[65];
+assert.equal(day33Pattern.num, 66);
+const day33Fixed = { target_en: day33Pattern.examples[1], target_ko: day33Pattern.examples_ko[1] };
+for (const rawWrapped of [
+  '[{"situation": "룸메이트와 공과금 분담을 논의해요.", "reason_ko": "sharing은 함께 나눈다는 뜻입니다."}]',
+  '{"situation": "룸메이트와 공과금 분담을 논의해요.", "reason_ko": "sharing은 함께 나눈다는 뜻입니다."}\n참고로 공과금 표현입니다.',
+  '{"situation": "상황: 룸메이트와 공과금 분담을 논의해요.", "reason_ko": "sharing',
+  '{"situation": "룸메이트와 공과금 분담을 논의해요.", "reason_ko":',
+  '{"situation": "룸메이트와 공과금 분담을 논의해요.", "reason_ko',
+  '{"situation": "룸메이트와 공과금 분담을 논의해요.", ',
+  '{"situation": "룸메이트와 공과금 분담을 논의해요.", "reason_ko": "sharing\\',
+  '{"situation": "룸메이트와\n공과금 분담을 논의해요."}',
+]) {
+  const parsed = context.__parseTrainingPrompt(rawWrapped, true, true, false, day33Fixed);
+  assert.equal(parsed?.situation, "룸메이트와 공과금 분담을 논의해요.", `복구 가능한 응답 형식을 놓치면 안 됩니다: ${rawWrapped}`);
+}
+
+const overLengthRetry = await requestWithResponses([
+  { situation: "룸메이트가 공과금을 나눠 내자고 말한 뜻을 확인하고 있어요." },
+  { situation: "공과금 분담 뜻을 되묻고 있어요.", reason_ko: "sharing은 함께 나눈다는 뜻입니다." },
+], {}, {}, day33Pattern, 1);
+assert.equal(overLengthRetry.requests.length, 2);
+assert.match(overLengthRetry.requests[1], /28자를 초과했습니다/, "글자 수 초과 시 재요청에 정확한 초과 원인을 알려줘야 합니다.");
+assert.equal(overLengthRetry.result.situation, "공과금 분담 뜻을 되묻고 있어요.");
+
+const englishLeakRetry = await requestWithResponses([
+  { situation: "룸메이트와 utilities 분담 뜻을 물어요." },
+  { situation: "공과금 분담 뜻을 되묻고 있어요.", reason_ko: "sharing은 함께 나눈다는 뜻입니다." },
+], {}, {}, day33Pattern, 1);
+assert.match(englishLeakRetry.requests[1], /영어 단어가 포함되었습니다/, "상황 설명에 영어가 섞였을 때 재요청에 교정 지침을 포함해야 합니다.");
+
+await assert.rejects(
+  requestWithResponses([
+    { situation: "룸메이트가 공과금을 나눠 내자고 말한 뜻을 확인하고 있어요." },
+    { situation: "새로 살 집의 공과금 분담 조건이 무슨 뜻인지 확인하려 해요." },
+  ], {}, {}, day33Pattern, 1),
+  error => error.promptRetry === true && error.promptFailure.includes("28자를 초과했습니다"),
+  "반복 실패 시 실패 원인 정보를 함께 전달해야 합니다."
+);
+
 console.log("Training prompt format tests passed");
